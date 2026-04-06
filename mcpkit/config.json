@@ -1,0 +1,13 @@
+{
+  "target_repo": "panyam/mcpkit",
+  "sources": [
+    {
+      "repo": "modelcontextprotocol/go-sdk",
+      "label": "go-sdk"
+    },
+    {
+      "repo": "modelcontextprotocol/specification",
+      "label": "spec"
+    }
+  ]
+}

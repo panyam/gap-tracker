@@ -1,0 +1,10 @@
+[project]
+name = "gap-tracker"
+version = "0.1.0"
+description = "Add your description here"
+readme = "README.md"
+requires-python = ">=3.12"
+dependencies = [
+    "ipdb>=0.13.13",
+    "ipython>=9.12.0",
+]
