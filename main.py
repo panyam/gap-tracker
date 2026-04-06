@@ -15,7 +15,6 @@ Usage:
 Example:
     python main.py sync mcpkit go-sdk:0        # sync go-sdk from offset 0
     python main.py sync mcpkit spec:100        # sync spec from offset 100
-    python main.py sync mcpkit target:0        # sync our repo
     python main.py sync mcpkit 0               # auto-select if single source
     python main.py report mcpkit
     python main.py crossref mcpkit
@@ -203,36 +202,31 @@ def sync_repo(db: sqlite3.Connection, repo: str, offset: int = 0, count: int = 1
 
 
 def cmd_sync(project: str, source_label: str | None, offset: int, count: int = 100):
-    """Sync a specific source (or 'target') incrementally."""
+    """Sync issues from a source repo incrementally into the local DB."""
     config = get_config(project)
     db = get_db(project)
 
-    # Resolve which repo to sync
-    if source_label == "target":
-        repo = config["target_repo"]
-        label = "target"
-    elif source_label:
+    # Resolve which source to sync
+    if source_label:
         repo = None
         for s in config["sources"]:
             if s["label"] == source_label:
                 repo = s["repo"]
                 break
         if not repo:
-            labels = ["target"] + [s["label"] for s in config["sources"]]
+            labels = [s["label"] for s in config["sources"]]
             print(f"Unknown source: {source_label}")
             print(f"Available: {', '.join(labels)}")
             sys.exit(1)
         label = source_label
+    elif len(config["sources"]) == 1:
+        repo = config["sources"][0]["repo"]
+        label = config["sources"][0]["label"]
     else:
-        # Single source → auto-select; multiple → require explicit choice
-        if len(config["sources"]) == 1:
-            repo = config["sources"][0]["repo"]
-            label = config["sources"][0]["label"]
-        else:
-            labels = ["target"] + [s["label"] for s in config["sources"]]
-            print(f"Multiple sources. Specify which to sync: {', '.join(labels)}")
-            print(f"  e.g., sync {project} go-sdk 0")
-            sys.exit(1)
+        labels = [s["label"] for s in config["sources"]]
+        print(f"Multiple sources. Specify which to sync: {', '.join(labels)}")
+        print(f"  e.g., sync {project} go-sdk:0")
+        sys.exit(1)
 
     print(f"=== Gap Tracker: {project} ===")
     print(f"Syncing: {label} ({repo})")
@@ -419,23 +413,24 @@ def cmd_show(project: str, issue_ref: str):
     config = get_config(project)
     db = get_db(project)
 
-    # Parse ref: "go-sdk:148" → (repo, 148), "#72" / "72" → (target, 72)
-    if ":" in issue_ref:
-        label, num_str = issue_ref.split(":", 1)
-        # Find repo by label
-        repo = None
-        for s in config["sources"]:
-            if s["label"] == label:
-                repo = s["repo"]
-                break
-        if not repo:
-            print(f"Unknown source label: {label}")
-            print(f"Available: {', '.join(s['label'] for s in config['sources'])}")
-            sys.exit(1)
-        number = int(num_str)
-    else:
-        repo = config["target_repo"]
-        number = int(issue_ref.lstrip("#"))
+    # Parse ref: "go-sdk:148" → (repo, 148)
+    if ":" not in issue_ref:
+        labels = [s["label"] for s in config["sources"]]
+        print(f"Specify source: <label>:<number>  (e.g., go-sdk:148)")
+        print(f"Available labels: {', '.join(labels)}")
+        sys.exit(1)
+
+    label, num_str = issue_ref.split(":", 1)
+    repo = None
+    for s in config["sources"]:
+        if s["label"] == label:
+            repo = s["repo"]
+            break
+    if not repo:
+        print(f"Unknown source label: {label}")
+        print(f"Available: {', '.join(s['label'] for s in config['sources'])}")
+        sys.exit(1)
+    number = int(num_str)
 
     row = db.execute(
         "SELECT * FROM issues WHERE repo = ? AND number = ?", (repo, number)
