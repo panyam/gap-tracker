@@ -460,6 +460,20 @@ def cmd_link(project: str, feature: str, target_issue: int, source_evidence: str
     config = get_config(project)
     db = get_db(project)
 
+    # Check for duplicate source evidence in existing gaps
+    for ref in (source_evidence or "").split(","):
+        ref = ref.strip()
+        if not ref:
+            continue
+        existing = db.execute(
+            "SELECT feature, target_issue FROM gaps WHERE source_evidence LIKE ? AND feature != ?",
+            (f"%{ref}%", feature),
+        ).fetchone()
+        if existing:
+            print(f"WARNING: {ref} is already linked to gap '{existing['feature']}' → #{existing['target_issue']}")
+            print(f"  Use a different feature name or update the existing gap instead.")
+            return
+
     # Cache the target issue so report/show can display its title
     _ensure_target_issue(db, config["target_repo"], target_issue)
 
