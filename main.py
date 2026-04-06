@@ -359,12 +359,26 @@ def cmd_report(project: str):
 
         if tracked:
             print(f"  Tracked ({len(tracked)}):")
-            print(f"  {'Source':<12} {'Status':<14} {'Ours':>6}  {'P':>3}  Title")
-            print(f"  {'-'*90}")
-            for si, gap in tracked:
-                ours = f"#{gap['target_issue']}" if gap["target_issue"] else "  —"
-                print(f"  {label}#{si['number']:<7} {gap['status']:<14} {ours:>6}  {gap['priority'] or '':>3}  {si['title'][:55]}")
             print()
+            for si, gap in tracked:
+                ours_num = gap["target_issue"]
+                ours_str = f"#{ours_num}" if ours_num else "—"
+                status_badge = {"open": "[ ]", "in-progress": "[~]", "closed": "[x]", "not-applicable": "[-]"}.get(gap["status"], "[ ]")
+                priority = f" {gap['priority']}" if gap["priority"] else ""
+
+                # Source line
+                print(f"  {status_badge} {label}#{si['number']}  →  {ours_str}{priority}")
+                print(f"       src: {si['title'][:70]}")
+
+                # Our issue details
+                if ours_num:
+                    our_issue = db.execute(
+                        "SELECT title, state FROM issues WHERE repo = ? AND number = ?",
+                        (target, ours_num),
+                    ).fetchone()
+                    if our_issue:
+                        print(f"       ours: {our_issue['title'][:70]}  [{our_issue['state']}]")
+                print()
 
         if untracked:
             print(f"  Untracked ({len(untracked)}):")
@@ -375,11 +389,22 @@ def cmd_report(project: str):
     # Summary: tracked gaps table
     if gaps:
         print(f"--- All tracked gaps ({len(gaps)}) ---")
-        print(f"{'Feature':<35} {'P':>3} {'Status':<14} {'Ours':>6}  Source evidence")
-        print("-" * 100)
-        for g in sorted(gaps, key=lambda g: {"P0":0,"P1":1,"P2":2,"P3":3}.get(g["priority"] or "",4)):
-            ours = f"#{g['target_issue']}" if g["target_issue"] else "  —"
-            print(f"{g['feature']:<35} {g['priority'] or '':>3} {g['status']:<14} {ours:>6}  {(g['source_evidence'] or '')[:35]}")
+        print()
+        for g in sorted(gaps, key=lambda g: ({"P0":0,"P1":1,"P2":2,"P3":3}.get(g["priority"] or "",4), g["status"])):
+            ours_num = g["target_issue"]
+            ours_str = f"#{ours_num}" if ours_num else "—"
+            status_badge = {"open": "[ ]", "in-progress": "[~]", "closed": "[x]", "not-applicable": "[-]"}.get(g["status"], "[ ]")
+            priority = f" {g['priority']}" if g["priority"] else ""
+
+            print(f"  {status_badge} {g['feature']}{priority}  →  {ours_str}  (evidence: {g['source_evidence'] or 'none'})")
+            if ours_num:
+                our_issue = db.execute(
+                    "SELECT title, state FROM issues WHERE repo = ? AND number = ?",
+                    (target, ours_num),
+                ).fetchone()
+                if our_issue:
+                    print(f"       {our_issue['title'][:70]}  [{our_issue['state']}]")
+            print()
         print()
 
     # Sync info
@@ -394,8 +419,50 @@ def cmd_report(project: str):
 # Manual linking
 # ---------------------------------------------------------------------------
 
+def _ensure_target_issue(db: sqlite3.Connection, target_repo: str, number: int):
+    """Fetch and cache a target issue if not already in the DB."""
+    if number <= 0:
+        return
+    existing = db.execute(
+        "SELECT number FROM issues WHERE repo = ? AND number = ?", (target_repo, number)
+    ).fetchone()
+    if existing:
+        return
+
+    # Fetch from GitHub
+    env = _gh_env()
+    result = subprocess.run(
+        ["gh", "api", f"repos/{target_repo}/issues/{number}"],
+        capture_output=True, text=True, env=env,
+    )
+    if result.returncode != 0:
+        return
+
+    try:
+        i = json.loads(result.stdout)
+    except json.JSONDecodeError:
+        return
+
+    labels = ",".join(l["name"] for l in i.get("labels", []))
+    db.execute("""
+        INSERT INTO issues (repo, number, title, state, labels, created_at, updated_at, url, body, synced_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))
+        ON CONFLICT(repo, number) DO UPDATE SET
+            title=excluded.title, state=excluded.state, labels=excluded.labels,
+            updated_at=excluded.updated_at, synced_at=excluded.synced_at
+    """, (target_repo, i["number"], i["title"], i["state"].upper(),
+          labels, i["created_at"], i["updated_at"], i["html_url"],
+          (i.get("body") or "")[:2000]))
+    db.commit()
+
+
 def cmd_link(project: str, feature: str, target_issue: int, source_evidence: str = ""):
+    config = get_config(project)
     db = get_db(project)
+
+    # Cache the target issue so report/show can display its title
+    _ensure_target_issue(db, config["target_repo"], target_issue)
+
     db.execute("""
         INSERT INTO gaps (feature, target_issue, source_evidence, updated_at)
         VALUES (?, ?, ?, datetime('now'))
@@ -447,6 +514,30 @@ def cmd_show(project: str, issue_ref: str):
         print(f"  Labels: {row['labels']}")
     print(f"  URL: {row['url']}")
     print(f"  Created: {row['created_at']}  Updated: {row['updated_at']}")
+
+    # Show linked gap if this source issue is tracked
+    ref = f"{label}:{number}"
+    gap = db.execute(
+        "SELECT * FROM gaps WHERE source_evidence LIKE ?", (f"%{ref}%",)
+    ).fetchone()
+    if gap:
+        target = config["target_repo"]
+        ours_str = f"#{gap['target_issue']}" if gap["target_issue"] else "none"
+        print(f"  ┌─ Linked gap: {gap['feature']}  →  {target}{ours_str}  [{gap['status']}]")
+        if gap["target_issue"]:
+            # Show our issue title if we have it in the DB
+            our_issue = db.execute(
+                "SELECT title, state FROM issues WHERE repo = ? AND number = ?",
+                (target, gap["target_issue"]),
+            ).fetchone()
+            if our_issue:
+                print(f"  │  {our_issue['title']}  [{our_issue['state']}]")
+        if gap["priority"]:
+            print(f"  │  Priority: {gap['priority']}")
+        print(f"  └─")
+    else:
+        print(f"  ⚠ Not linked to any gap (use: link {project} \"<feature>\" <issue#> \"{ref}\")")
+
     print(f"{'─' * 80}")
     if row["body"]:
         print(row["body"])
