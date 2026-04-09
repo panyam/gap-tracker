@@ -6,11 +6,13 @@ Supports many-to-one: multiple source repos feeding into a single target repo.
 
 Usage:
     python main.py sync <project> <offset> [--count N]
-    python main.py report <project>
+    python main.py report <project> [--by-priority]
     python main.py crossref <project>
     python main.py show <project> <issue_ref>
     python main.py link <project> <feature> <target_issue#> [source_evidence]
     python main.py mark <project> <feature> <status>
+    python main.py note <project> <issue_ref> <note_text> [--set]
+    python main.py notes <project> [filter]
 
 Example:
     python main.py sync mcpkit go-sdk:0        # sync go-sdk from offset 0
@@ -20,6 +22,11 @@ Example:
     python main.py crossref mcpkit
     python main.py show mcpkit go-sdk:666
     python main.py show mcpkit 56
+    python main.py note mcpkit 42 "[route:servicekit] generic timeout pattern"   # appends
+    python main.py note mcpkit go-sdk:148 "[route:oneauth] OAuth token caching"  # appends
+    python main.py note mcpkit 42 "[route:servicekit] new note" --set            # overwrites
+    python main.py notes mcpkit                # list all issues with notes
+    python main.py notes mcpkit route:servicekit  # filter by routing tag
 """
 
 import json
@@ -30,6 +37,12 @@ import subprocess
 import sys
 from datetime import datetime, timezone
 from pathlib import Path
+
+from rich.console import Console
+from rich.table import Table
+from rich.text import Text
+
+console = Console()
 
 SCRIPT_DIR = Path(__file__).parent
 
@@ -64,6 +77,7 @@ def _create_tables(db: sqlite3.Connection):
             url         TEXT NOT NULL,
             body        TEXT DEFAULT '',
             synced_at   TEXT NOT NULL DEFAULT (datetime('now')),
+            notes       TEXT DEFAULT '',
             PRIMARY KEY (repo, number)
         );
 
@@ -179,6 +193,7 @@ def _upsert_issues(db: sqlite3.Connection, repo: str, issues: list[dict]):
             ON CONFLICT(repo, number) DO UPDATE SET
                 title=excluded.title, state=excluded.state, labels=excluded.labels,
                 updated_at=excluded.updated_at, body=excluded.body, synced_at=excluded.synced_at
+            /* notes column is NOT overwritten by sync — it's manually curated */
         """, (repo, issue["number"], issue["title"], issue.get("state", "OPEN"),
               labels, issue.get("createdAt", ""), issue.get("updatedAt", ""),
               issue.get("url", ""), issue.get("body", "")))
@@ -207,14 +222,17 @@ def cmd_sync(project: str, source_label: str | None, offset: int, count: int = 1
     db = get_db(project)
 
     # Resolve which source to sync
-    if source_label:
+    if source_label == "target":
+        repo = config["target_repo"]
+        label = "target"
+    elif source_label:
         repo = None
         for s in config["sources"]:
             if s["label"] == source_label:
                 repo = s["repo"]
                 break
         if not repo:
-            labels = [s["label"] for s in config["sources"]]
+            labels = [s["label"] for s in config["sources"]] + ["target"]
             print(f"Unknown source: {source_label}")
             print(f"Available: {', '.join(labels)}")
             sys.exit(1)
@@ -316,17 +334,51 @@ def cmd_crossref(project: str):
 # Report
 # ---------------------------------------------------------------------------
 
-def cmd_report(project: str):
+def _label_priority_score(labels_str: str) -> int:
+    """Return a sort score for an issue based on its labels (lower = higher priority).
+
+    Label tiers:
+      0 — bug, blocked, breaking change, security
+      1 — ready for work, P0, P1
+      2 — P2, enhancement, SEP (spec enhancement proposal)
+      3 — P3, help wanted
+      4 — needs investigation, needs confirmation
+      5 — documentation, question, needs community feedback
+      9 — (no labels / unrecognized)
+    """
+    labels = {l.strip().lower() for l in labels_str.split(",") if l.strip()} if labels_str else set()
+    if not labels:
+        return 9
+    # Check tiers from highest to lowest — return first match
+    if labels & {"bug", "blocked", "breaking change", "security"}:
+        return 0
+    if labels & {"ready for work", "p0", "p1"}:
+        return 1
+    if labels & {"p2", "enhancement", "sep", "sep-requested", "in-review"}:
+        return 2
+    if labels & {"p3", "help wanted", "external"}:
+        return 3
+    if labels & {"needs investigation", "needs confirmation"}:
+        return 4
+    if labels & {"documentation", "question", "needs community feedback", "awaiting-reply"}:
+        return 5
+    return 6
+
+
+_STATUS_BADGE = {"open": "[ ]", "in-progress": "[~]", "closed": "[x]", "not-applicable": "[-]", "deferred": "[>]"}
+_STATUS_STYLE = {"open": "bold white", "in-progress": "yellow", "closed": "green", "not-applicable": "dim", "deferred": "cyan"}
+_STATUS_SORT = {"open": 0, "in-progress": 1, "deferred": 2, "closed": 3, "not-applicable": 4}
+
+
+def cmd_report(project: str, by_priority: bool = False):
     config = get_config(project)
     db = get_db(project)
     target = config["target_repo"]
 
-    print(f"=== Gap Report: {project} ===")
-    print(f"Target: {target}\n")
+    console.print(f"\n[bold]Gap Report: {project}[/bold]  (target: {target})\n")
 
     # Build a lookup: source evidence → gap info
     gaps = db.execute("SELECT * FROM gaps").fetchall()
-    # Index by source ref for quick lookup (e.g., "go-sdk:148" → gap row)
     evidence_to_gap = {}
     for g in gaps:
         for ref in (g["source_evidence"] or "").split(","):
@@ -334,13 +386,22 @@ def cmd_report(project: str):
             if ref:
                 evidence_to_gap[ref] = g
 
-    # Report per source
+    # Helper: look up our issue title
+    def _our_issue(num):
+        if not num:
+            return None
+        return db.execute(
+            "SELECT title, state FROM issues WHERE repo = ? AND number = ?",
+            (target, num),
+        ).fetchone()
+
+    # ── Per-source sections ──────────────────────────────────────────────
     for source in config["sources"]:
         label = source["label"]
         repo = source["repo"]
 
         src_issues = db.execute(
-            "SELECT number, title, state, labels FROM issues WHERE repo = ? AND state = 'OPEN' ORDER BY number",
+            "SELECT number, title, state, labels, updated_at FROM issues WHERE repo = ? AND state = 'OPEN' ORDER BY number",
             (repo,),
         ).fetchall()
 
@@ -354,65 +415,162 @@ def cmd_report(project: str):
             else:
                 untracked.append(si)
 
-        print(f"--- {label} ({repo}) — {len(src_issues)} open ---")
-        print()
+        if by_priority:
+            untracked.sort(key=lambda si: (_label_priority_score(si["labels"]), -(si["number"])))
 
+        console.rule(f"[bold]{label}[/bold] ({repo}) — {len(src_issues)} open")
+
+        # Tracked table
         if tracked:
-            print(f"  Tracked ({len(tracked)}):")
-            print()
+            t = Table(title=f"Tracked ({len(tracked)})", show_header=True, title_style="bold",
+                      padding=(0, 1), show_edge=False, expand=True)
+            t.add_column("", width=3, no_wrap=True)          # status badge
+            t.add_column("Source", ratio=1, no_wrap=True)
+            t.add_column("Source Title", ratio=3)
+            t.add_column("Ours", ratio=1, no_wrap=True)
+            t.add_column("Our Title", ratio=3)
             for si, gap in tracked:
+                status = gap["status"]
+                badge = Text(_STATUS_BADGE.get(status, "[ ]"), style=_STATUS_STYLE.get(status, ""))
+                src_ref = f"{label}#{si['number']}"
                 ours_num = gap["target_issue"]
-                ours_str = f"#{ours_num}" if ours_num else "—"
-                status_badge = {"open": "[ ]", "in-progress": "[~]", "closed": "[x]", "not-applicable": "[-]"}.get(gap["status"], "[ ]")
-                priority = f" {gap['priority']}" if gap["priority"] else ""
+                ours_ref = f"#{ours_num}" if ours_num else "—"
+                oi = _our_issue(ours_num)
+                ours_title = oi["title"][:60] if oi else ""
+                t.add_row(badge, src_ref, si["title"][:60], ours_ref, ours_title)
+            console.print(t)
+            console.print()
 
-                # Source line
-                print(f"  {status_badge} {label}#{si['number']}  →  {ours_str}{priority}")
-                print(f"       src: {si['title'][:70]}")
-
-                # Our issue details
-                if ours_num:
-                    our_issue = db.execute(
-                        "SELECT title, state FROM issues WHERE repo = ? AND number = ?",
-                        (target, ours_num),
-                    ).fetchone()
-                    if our_issue:
-                        print(f"       ours: {our_issue['title'][:70]}  [{our_issue['state']}]")
-                print()
-
+        # Untracked table
         if untracked:
-            print(f"  Untracked ({len(untracked)}):")
+            t = Table(title=f"Untracked ({len(untracked)})", show_header=True, title_style="bold",
+                      padding=(0, 1), show_edge=False, expand=True)
+            t.add_column("Ref", no_wrap=True)
+            t.add_column("Title", ratio=4)
+            t.add_column("Labels", ratio=1, style="dim")
             for si in untracked:
-                print(f"    {label}#{si['number']:<7} {si['title'][:70]}")
-            print()
+                t.add_row(
+                    f"{label}#{si['number']}",
+                    si["title"][:70],
+                    si["labels"] or "",
+                )
+            console.print(t)
+            console.print()
 
-    # Summary: tracked gaps table
+    # ── All tracked gaps summary ─────────────────────────────────────────
     if gaps:
-        print(f"--- All tracked gaps ({len(gaps)}) ---")
-        print()
-        for g in sorted(gaps, key=lambda g: ({"P0":0,"P1":1,"P2":2,"P3":3}.get(g["priority"] or "",4), g["status"])):
-            ours_num = g["target_issue"]
-            ours_str = f"#{ours_num}" if ours_num else "—"
-            status_badge = {"open": "[ ]", "in-progress": "[~]", "closed": "[x]", "not-applicable": "[-]"}.get(g["status"], "[ ]")
-            priority = f" {g['priority']}" if g["priority"] else ""
+        # Separate by status for grouped display
+        open_gaps = [g for g in gaps if g["status"] in ("open", "in-progress")]
+        deferred_gaps = [g for g in gaps if g["status"] == "deferred"]
+        closed_gaps = [g for g in gaps if g["status"] in ("closed", "not-applicable")]
 
-            print(f"  {status_badge} {g['feature']}{priority}  →  {ours_str}  (evidence: {g['source_evidence'] or 'none'})")
-            if ours_num:
-                our_issue = db.execute(
-                    "SELECT title, state FROM issues WHERE repo = ? AND number = ?",
-                    (target, ours_num),
-                ).fetchone()
-                if our_issue:
-                    print(f"       {our_issue['title'][:70]}  [{our_issue['state']}]")
-            print()
-        print()
+        def _gap_sort_key(g):
+            return (
+                {"P0": 0, "P1": 1, "P2": 2, "P3": 3}.get(g["priority"] or "", 4),
+                _STATUS_SORT.get(g["status"], 9),
+                g["feature"],
+            )
 
-    # Sync info
-    print("--- Last synced ---")
-    for row in db.execute(
+        def _add_gap_rows(table, gap_list):
+            for g in sorted(gap_list, key=_gap_sort_key):
+                status = g["status"]
+                badge = Text(_STATUS_BADGE.get(status, "[ ]"), style=_STATUS_STYLE.get(status, ""))
+                ours_num = g["target_issue"]
+                ours_ref = f"#{ours_num}" if ours_num else "—"
+                oi = _our_issue(ours_num)
+                ours_title = oi["title"][:55] if oi else ""
+                pri = g["priority"] or ""
+                table.add_row(badge, g["source_evidence"] or "", ours_ref, ours_title, pri)
+
+        # Open/in-progress gaps
+        if open_gaps:
+            t = Table(title=f"Open gaps ({len(open_gaps)})", show_header=True, title_style="bold green",
+                      padding=(0, 1), show_edge=False, expand=True)
+            t.add_column("", width=3, no_wrap=True)
+            t.add_column("Evidence", ratio=1)
+            t.add_column("Ours", no_wrap=True)
+            t.add_column("Title", ratio=3)
+            t.add_column("Pri", width=3, no_wrap=True)
+            _add_gap_rows(t, open_gaps)
+            console.print()
+            console.rule("[bold]All Tracked Gaps[/bold]")
+            console.print(t)
+
+        # Deferred gaps — formatted for easy copy-paste back into /gap-track
+        if deferred_gaps:
+            t = Table(title=f"Deferred ({len(deferred_gaps)})", show_header=True, title_style="bold cyan",
+                      padding=(0, 1), show_edge=False, expand=True)
+            t.add_column("", width=3, no_wrap=True)
+            t.add_column("Evidence", ratio=1)
+            t.add_column("Gap Name", ratio=2)
+            _add_deferred_rows(t, deferred_gaps)
+            console.print(t)
+
+            # Plain-text block for copy-paste into /gap-track (raw print to avoid wrapping)
+            console.print()
+            console.print("[dim]Copy-paste block for re-triage:[/dim]")
+            for line in _deferred_copy_block(db, config, deferred_gaps):
+                print(line)
+
+        # Closed/n-a gaps
+        if closed_gaps:
+            t = Table(title=f"Closed / N/A ({len(closed_gaps)})", show_header=True, title_style="dim",
+                      padding=(0, 1), show_edge=False, expand=True)
+            t.add_column("", width=3, no_wrap=True)
+            t.add_column("Evidence", ratio=1)
+            t.add_column("Ours", no_wrap=True)
+            t.add_column("Title", ratio=3)
+            t.add_column("Pri", width=3, no_wrap=True)
+            _add_gap_rows(t, closed_gaps)
+            console.print(t)
+
+        console.print()
+
+    # ── Sync info ────────────────────────────────────────────────────────
+    sync_rows = db.execute(
         "SELECT repo, synced_at, issue_count, offset_used FROM sync_log ORDER BY synced_at DESC LIMIT 8"
-    ).fetchall():
-        print(f"  {row['repo']:<45} {row['synced_at']}  {row['issue_count']} issues (offset={row['offset_used']})")
+    ).fetchall()
+    if sync_rows:
+        t = Table(title="Last synced", show_header=True, title_style="dim", padding=(0, 1), show_edge=False)
+        t.add_column("Repo", ratio=2)
+        t.add_column("Synced", ratio=1)
+        t.add_column("Count", justify="right")
+        t.add_column("Offset", justify="right")
+        for row in sync_rows:
+            t.add_row(row["repo"], row["synced_at"], str(row["issue_count"]), str(row["offset_used"]))
+        console.print(t)
+
+
+def _add_deferred_rows(table, gap_list):
+    for g in sorted(gap_list, key=lambda g: g["feature"]):
+        badge = Text("[>]", style="cyan")
+        table.add_row(badge, g["source_evidence"] or "", g["feature"])
+
+
+def _deferred_copy_block(db, config, deferred_gaps) -> list[str]:
+    """Build plain-text lines for deferred gaps, suitable for pasting into /gap-track."""
+    lines = []
+    for g in sorted(deferred_gaps, key=lambda g: g["source_evidence"] or ""):
+        for ref in (g["source_evidence"] or "").split(","):
+            ref = ref.strip()
+            if not ref:
+                continue
+            parts = ref.split(":")
+            if len(parts) == 2:
+                src_label, src_num = parts
+                src_repo = next((s["repo"] for s in config["sources"] if s["label"] == src_label), None)
+                if src_repo:
+                    si = db.execute(
+                        "SELECT title FROM issues WHERE repo = ? AND number = ?",
+                        (src_repo, int(src_num)),
+                    ).fetchone()
+                    title = si["title"][:70] if si else g["feature"]
+                else:
+                    title = g["feature"]
+            else:
+                title = g["feature"]
+            lines.append(f"    {ref:<12} {title[:70]}")
+    return lines
 
 
 # ---------------------------------------------------------------------------
@@ -528,6 +686,8 @@ def cmd_show(project: str, issue_ref: str):
         print(f"  Labels: {row['labels']}")
     print(f"  URL: {row['url']}")
     print(f"  Created: {row['created_at']}  Updated: {row['updated_at']}")
+    if row["notes"]:
+        print(f"  Notes: {row['notes']}")
 
     # Show linked gap if this source issue is tracked
     ref = f"{label}:{number}"
@@ -565,6 +725,86 @@ def cmd_mark(project: str, feature: str, status: str):
     db.execute("UPDATE gaps SET status = ?, updated_at = datetime('now') WHERE feature = ?", (status, feature))
     db.commit()
     print(f"Marked: {feature} → {status}")
+
+
+def _resolve_issue_ref(config: dict, issue_ref: str) -> tuple[str, int]:
+    """Parse '<number>' (target) or '<label>:<number>' (source) into (repo, number)."""
+    if ":" in issue_ref:
+        label, num_str = issue_ref.split(":", 1)
+        repo = next((s["repo"] for s in config["sources"] if s["label"] == label), None)
+        if not repo:
+            print(f"Unknown source label: {label}")
+            sys.exit(1)
+    else:
+        repo = config["target_repo"]
+        num_str = issue_ref.lstrip("#")
+    return repo, int(num_str)
+
+
+def cmd_note(project: str, issue_ref: str, note_text: str, overwrite: bool = False):
+    """Add a note to an issue. Appends by default, overwrites with --set."""
+    config = get_config(project)
+    db = get_db(project)
+    repo, number = _resolve_issue_ref(config, issue_ref)
+
+    existing = db.execute(
+        "SELECT number, title, notes FROM issues WHERE repo = ? AND number = ?",
+        (repo, number),
+    ).fetchone()
+    if not existing:
+        print(f"Issue {repo}#{number} not found in DB. Sync first.")
+        sys.exit(1)
+
+    if overwrite or not existing["notes"]:
+        final = note_text
+    else:
+        final = existing["notes"].rstrip() + "\n" + note_text
+
+    db.execute("UPDATE issues SET notes = ? WHERE repo = ? AND number = ?", (final, repo, number))
+    db.commit()
+    verb = "Set" if overwrite else "Appended"
+    print(f"{verb} note on {repo}#{number}: {note_text}")
+
+
+def cmd_notes(project: str, filter_text: str = ""):
+    """List issues that have notes, optionally filtered by substring (e.g. 'route:servicekit')."""
+    config = get_config(project)
+    db = get_db(project)
+
+    if filter_text:
+        rows = db.execute(
+            "SELECT repo, number, title, state, notes FROM issues WHERE notes LIKE ? AND notes != '' ORDER BY repo, number",
+            (f"%{filter_text}%",),
+        ).fetchall()
+    else:
+        rows = db.execute(
+            "SELECT repo, number, title, state, notes FROM issues WHERE notes != '' ORDER BY repo, number"
+        ).fetchall()
+
+    if not rows:
+        print(f"No issues with notes{f' matching \"{filter_text}\"' if filter_text else ''}.")
+        return
+
+    t = Table(title=f"Issues with notes{f' (filter: {filter_text})' if filter_text else ''}", show_header=True,
+              padding=(0, 1), show_edge=False, expand=True)
+    t.add_column("#", no_wrap=True)
+    t.add_column("State", width=6, no_wrap=True)
+    t.add_column("Title", ratio=3)
+    t.add_column("Notes", ratio=2, style="cyan")
+
+    target = config["target_repo"]
+    for row in rows:
+        repo = row["repo"]
+        # Show short ref: target issues as #N, source issues as label:N
+        if repo == target:
+            ref = f"#{row['number']}"
+        else:
+            label = next((s["label"] for s in config["sources"] if s["repo"] == repo), repo)
+            ref = f"{label}:{row['number']}"
+        state_style = "green" if row["state"] == "CLOSED" else "bold"
+        t.add_row(ref, Text(row["state"], style=state_style), row["title"][:60], row["notes"][:80])
+
+    console.print(t)
 
 
 # ---------------------------------------------------------------------------
@@ -608,7 +848,7 @@ def main():
             count = _parse_int_flag(extra[1:], "--count", 100)
             cmd_sync(project, source_label, offset=offset, count=count)
         case "report":
-            cmd_report(project)
+            cmd_report(project, by_priority="--by-priority" in extra)
         case "crossref":
             cmd_crossref(project)
         case "link":
@@ -626,6 +866,18 @@ def main():
                 print("usage: mark <project> <feature> <status>")
                 sys.exit(1)
             cmd_mark(project, extra[0], extra[1])
+        case "note":
+            overwrite = "--set" in extra
+            args = [a for a in extra if a != "--set"]
+            if len(args) < 2:
+                print("usage: note <project> <issue_ref> <note_text> [--set]")
+                print("  Appends by default. Use --set to overwrite.")
+                print("  e.g., note mcpkit 42 \"[route:servicekit] generic timeout\"")
+                print("        note mcpkit go-sdk:148 \"[route:oneauth] token caching\" --set")
+                sys.exit(1)
+            cmd_note(project, args[0], " ".join(args[1:]), overwrite=overwrite)
+        case "notes":
+            cmd_notes(project, extra[0] if extra else "")
         case _:
             print(f"Unknown command: {cmd}")
             sys.exit(1)
