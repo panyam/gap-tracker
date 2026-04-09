@@ -1,10 +1,10 @@
-Review a source issue from the gap-tracker DB, find or create a matching issue in our repo, and link them.
+Review a source issue from the gap-tracker DB, validate whether the gap exists by writing a test, then triage and link.
 
 ## Arguments
 $ARGUMENTS — `<project> [source_ref]`
 - `gap-track mcpkit` — show gap report for mcpkit
-- `gap-track mcpkit go-sdk:666` — review go-sdk#666 and link to mcpkit
-- `gap-track oneauth spec:282` — review spec#282 and link to oneauth
+- `gap-track mcpkit go-sdk:666` — review go-sdk#666 and triage for mcpkit
+- `gap-track oneauth spec:282` — review spec#282 and triage for oneauth
 
 The project name must match a subdirectory in `~/newstack/gap-tracker/` with a `config.json`.
 
@@ -16,36 +16,64 @@ The project name must match a subdirectory in `~/newstack/gap-tracker/` with a `
 
 2. **If no source_ref**: run report mode
    - Run: `cd ~/newstack/gap-tracker && uv run python main.py report <project> --by-priority`
-   - Show the output (untracked items are sorted by label-based priority: bugs/blockers first, then ready-for-work, enhancements, docs last)
-   - Stop here
+   - Show the output and stop here
 
 3. **Show the source issue**:
    - Run: `cd ~/newstack/gap-tracker && uv run python main.py show <project> <source_ref>`
    - Read the output — title, labels, body
-   - **If the output shows "Linked gap:"** → this issue is already tracked. Show the link and stop. Don't re-link.
+   - **If the output shows "Linked gap:"** → already tracked. Show the link and stop.
 
 4. **Search for matching issues in our repo**:
    - Extract `target_repo` from config.json
    - Run: `GH_TOKEN="$GH_PERSONAL_TOKEN" gh issue list --repo <target_repo> --state all --limit 20 --search "<keywords from title>" --json number,title,state`
-   - If a good match exists, suggest linking to it
+   - If a good match exists, note it for the triage step
 
-5. **Triage decision** — choose one of four actions per issue:
+5. **Validate the gap** — determine if this is testable, then probe:
+
+   a. **Assess testability**: Read the source issue and decide:
+      - Is this a concrete capability, bug, or behavior that can be tested against our codebase?
+      - Or is it infra, documentation, tooling, or a design discussion that isn't testable?
+      - If not testable, skip to step 6 with a note like `[skip-validation] <reason>`
+
+   b. **Write a test**: You already know this project's test framework and conventions — use them.
+      - Formulate what the source issue describes as a capability or behavior
+      - Write a focused test that exercises whether our platform already supports it
+      - Place the test where it naturally belongs in the project's test structure
+      - The test should PASS if we already have the capability, FAIL if we don't
+
+   c. **Run the test** and observe the result
+
+   d. **Record the result** as a note on the source issue:
+      - Pass: `cd ~/newstack/gap-tracker && uv run python main.py note <project> <source_ref> "[pass] <test_file>:<test_name> — <what it proved>"`
+      - Fail: `cd ~/newstack/gap-tracker && uv run python main.py note <project> <source_ref> "[fail] <test_file>:<test_name> — <what's missing>"`
+      - Skip: `cd ~/newstack/gap-tracker && uv run python main.py note <project> <source_ref> "[skip-validation] <reason>"`
+
+   e. **What to do with the test file**:
+      - If the test **failed** (gap confirmed): keep the test — it becomes the repro in the ticket
+      - If the test **passed** (no gap): ask the user whether to keep it as regression coverage or discard it
+
+6. **Triage decision** — informed by validation result:
 
    | Action | When to use | Result |
    |--------|-------------|--------|
    | **Link** | Existing issue in our repo already covers this | Gap points to existing issue |
-   | **Create + link** | Aligned with our project's philosophy — we'd accept a PR for this, even if low priority | New issue created in our repo, gap linked to it |
-   | **Defer** | Not aligned with our philosophy for now — we'll come back later when the landscape changes | Gap recorded with issue 0, status `deferred` `[>]`, resurfaces in reports |
-   | **Not-applicable** | Truly outside our project's scope (use sparingly) | Gap recorded with issue 0, status `not-applicable` `[-]` |
+   | **Create + link** | Gap confirmed (test failed) or untestable but aligned with our philosophy | New issue created, gap linked. If a failing test exists, reference it in the issue body |
+   | **Already implemented** | Test passed — we already have this | Mark `not-applicable`, note records the proof |
+   | **Defer** | Not aligned with our philosophy for now | Gap recorded with issue 0, status `deferred` |
+   | **Not-applicable** | Truly outside our scope (use sparingly) | Gap recorded with issue 0, status `not-applicable` |
 
-   **Rule of thumb:** prefer Create + link over Defer. If the feature is something we'd eventually want, create a ticket even at low priority. Defer is for things where we're not yet convinced the direction is right.
+   **Validation guides the default choice:**
+   - Test failed → default to **Create + link** (the failing test is the repro)
+   - Test passed → default to **Already implemented**
+   - Skipped/untestable → fall back to judgment (same as before)
 
-   When processing a batch, present the triage as a summary table and ask the user to confirm before executing.
+   Present the recommendation and ask the user to confirm.
 
-6. **Execute the chosen action**:
+7. **Execute the chosen action**:
    - **Link**: `cd ~/newstack/gap-tracker && uv run python main.py link <project> "<feature-name>" <issue#> "<source_ref>"`
-   - **Create + link**: Use `GH_TOKEN="$GH_PERSONAL_TOKEN" gh issue create --repo <target_repo>` — write the title and body **in our own words** describing the need/symptom. **Never reference source repos, issue numbers, or copy text from upstream.** The gap-tracker DB stores the provenance linkage separately. Then link the new issue number.
-   - **Defer**: `cd ~/newstack/gap-tracker && uv run python main.py link <project> "<feature-name>" 0 "<source_ref>"` then `uv run python main.py mark <project> "<feature-name>" deferred`
+   - **Create + link**: Use `GH_TOKEN="$GH_PERSONAL_TOKEN" gh issue create --repo <target_repo>` — write the title and body **in our own words** describing the gap. If a failing test exists, mention the test file and what it demonstrates. **Never reference source repos, issue numbers, or copy text from upstream.** Then link the new issue number.
+   - **Already implemented**: `cd ~/newstack/gap-tracker && uv run python main.py link <project> "<feature-name>" 0 "<source_ref>"` then `uv run python main.py mark <project> "<feature-name>" not-applicable`
+   - **Defer**: link with issue 0 then mark deferred
    - **Not-applicable**: link with issue 0 then mark not-applicable
 
-7. **Confirm**: Show the updated gap entry
+8. **Confirm**: Run `show` on the source ref to display the final state with notes and gap link

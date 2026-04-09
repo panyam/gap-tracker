@@ -22,9 +22,9 @@ Example:
     python main.py crossref mcpkit
     python main.py show mcpkit go-sdk:666
     python main.py show mcpkit 56
-    python main.py note mcpkit 42 "[route:servicekit] generic timeout pattern"   # appends
-    python main.py note mcpkit go-sdk:148 "[route:oneauth] OAuth token caching"  # appends
-    python main.py note mcpkit 42 "[route:servicekit] new note" --set            # overwrites
+    python main.py note mcpkit go-sdk:148 "OAuth token caching"                   # appends
+    python main.py note mcpkit go-sdk:148 "[pass] test_oauth_refresh passes"     # appends
+    python main.py note mcpkit 42 "new note" --set                               # overwrites all
     python main.py notes mcpkit                # list all issues with notes
     python main.py notes mcpkit route:servicekit  # filter by routing tag
 """
@@ -77,7 +77,7 @@ def _create_tables(db: sqlite3.Connection):
             url         TEXT NOT NULL,
             body        TEXT DEFAULT '',
             synced_at   TEXT NOT NULL DEFAULT (datetime('now')),
-            notes       TEXT DEFAULT '',
+            notes       TEXT DEFAULT '[]',
             PRIMARY KEY (repo, number)
         );
 
@@ -89,7 +89,7 @@ def _create_tables(db: sqlite3.Connection):
             source_evidence TEXT DEFAULT '',
             status          TEXT NOT NULL DEFAULT 'open',
             priority        TEXT DEFAULT '',
-            notes           TEXT DEFAULT '',
+            notes           TEXT DEFAULT '[]',
             created_at      TEXT NOT NULL DEFAULT (datetime('now')),
             updated_at      TEXT NOT NULL DEFAULT (datetime('now'))
         );
@@ -686,8 +686,12 @@ def cmd_show(project: str, issue_ref: str):
         print(f"  Labels: {row['labels']}")
     print(f"  URL: {row['url']}")
     print(f"  Created: {row['created_at']}  Updated: {row['updated_at']}")
-    if row["notes"]:
-        print(f"  Notes: {row['notes']}")
+    notes = _load_notes(row["notes"])
+    if notes:
+        print(f"  Notes ({len(notes)}):")
+        for n in notes:
+            at_str = f" ({n['at']})" if n.get("at") else ""
+            print(f"    • {n['text']}{at_str}")
 
     # Show linked gap if this source issue is tracked
     ref = f"{label}:{number}"
@@ -741,6 +745,24 @@ def _resolve_issue_ref(config: dict, issue_ref: str) -> tuple[str, int]:
     return repo, int(num_str)
 
 
+def _load_notes(raw: str) -> list[dict]:
+    """Parse notes JSON, returning [] on empty/invalid."""
+    if not raw or raw == "[]":
+        return []
+    try:
+        parsed = json.loads(raw)
+        if isinstance(parsed, list):
+            return parsed
+    except (json.JSONDecodeError, TypeError):
+        pass
+    return [{"text": raw, "at": ""}]
+
+
+def _save_notes(db: sqlite3.Connection, table: str, notes: list[dict], where_clause: str, where_params: tuple):
+    db.execute(f"UPDATE {table} SET notes = ? WHERE {where_clause}", (json.dumps(notes), *where_params))
+    db.commit()
+
+
 def cmd_note(project: str, issue_ref: str, note_text: str, overwrite: bool = False):
     """Add a note to an issue. Appends by default, overwrites with --set."""
     config = get_config(project)
@@ -755,14 +777,19 @@ def cmd_note(project: str, issue_ref: str, note_text: str, overwrite: bool = Fal
         print(f"Issue {repo}#{number} not found in DB. Sync first.")
         sys.exit(1)
 
-    if overwrite or not existing["notes"]:
-        final = note_text
-    else:
-        final = existing["notes"].rstrip() + "\n" + note_text
+    entry = {
+        "text": note_text,
+        "at": datetime.now(timezone.utc).strftime("%Y-%m-%d"),
+    }
 
-    db.execute("UPDATE issues SET notes = ? WHERE repo = ? AND number = ?", (final, repo, number))
-    db.commit()
-    verb = "Set" if overwrite else "Appended"
+    if overwrite:
+        notes = [entry]
+    else:
+        notes = _load_notes(existing["notes"])
+        notes.append(entry)
+
+    _save_notes(db, "issues", notes, "repo = ? AND number = ?", (repo, number))
+    verb = "Set" if overwrite else "Added"
     print(f"{verb} note on {repo}#{number}: {note_text}")
 
 
@@ -773,12 +800,12 @@ def cmd_notes(project: str, filter_text: str = ""):
 
     if filter_text:
         rows = db.execute(
-            "SELECT repo, number, title, state, notes FROM issues WHERE notes LIKE ? AND notes != '' ORDER BY repo, number",
+            "SELECT repo, number, title, state, notes FROM issues WHERE notes LIKE ? AND notes != '[]' AND notes != '' ORDER BY repo, number",
             (f"%{filter_text}%",),
         ).fetchall()
     else:
         rows = db.execute(
-            "SELECT repo, number, title, state, notes FROM issues WHERE notes != '' ORDER BY repo, number"
+            "SELECT repo, number, title, state, notes FROM issues WHERE notes != '[]' AND notes != '' ORDER BY repo, number"
         ).fetchall()
 
     if not rows:
@@ -795,14 +822,22 @@ def cmd_notes(project: str, filter_text: str = ""):
     target = config["target_repo"]
     for row in rows:
         repo = row["repo"]
-        # Show short ref: target issues as #N, source issues as label:N
         if repo == target:
             ref = f"#{row['number']}"
         else:
             label = next((s["label"] for s in config["sources"] if s["repo"] == repo), repo)
             ref = f"{label}:{row['number']}"
         state_style = "green" if row["state"] == "CLOSED" else "bold"
-        t.add_row(ref, Text(row["state"], style=state_style), row["title"][:60], row["notes"][:80])
+        notes = _load_notes(row["notes"])
+        # Compact display: show count + most recent entry
+        if notes:
+            latest = notes[-1]
+            summary = latest["text"][:60]
+            if len(notes) > 1:
+                summary = f"({len(notes)}) {summary}"
+        else:
+            summary = ""
+        t.add_row(ref, Text(row["state"], style=state_style), row["title"][:60], summary)
 
     console.print(t)
 
@@ -871,9 +906,9 @@ def main():
             args = [a for a in extra if a != "--set"]
             if len(args) < 2:
                 print("usage: note <project> <issue_ref> <note_text> [--set]")
-                print("  Appends by default. Use --set to overwrite.")
-                print("  e.g., note mcpkit 42 \"[route:servicekit] generic timeout\"")
-                print("        note mcpkit go-sdk:148 \"[route:oneauth] token caching\" --set")
+                print("  Appends by default. Use --set to overwrite all notes.")
+                print("  e.g., note mcpkit go-sdk:148 \"OAuth token caching\"")
+                print("        note mcpkit go-sdk:148 \"[pass] test_oauth passes\"")
                 sys.exit(1)
             cmd_note(project, args[0], " ".join(args[1:]), overwrite=overwrite)
         case "notes":
