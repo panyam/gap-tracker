@@ -61,6 +61,8 @@ for the full flow model and developer entry points.`,
 		"output format: auto, pretty, text, yaml, json")
 
 	cmd.AddCommand(newVersionCmd())
+	cmd.AddCommand(newTriageCmd())
+	cmd.AddCommand(newShowCmd())
 
 	return cmd
 }
