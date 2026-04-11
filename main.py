@@ -3,30 +3,42 @@
 gap-tracker: Track feature gaps between public reference repos and a local project.
 
 Supports many-to-one: multiple source repos feeding into a single target repo.
+Source of truth is the SQLite DB (`<project>/gaps.db`). YAML snapshots are
+export-on-demand via `triage export`. See `<project>/docs/STATE_MACHINE.md`.
 
-Usage:
-    python main.py sync <project> <offset> [--count N]
-    python main.py report <project> [--by-priority]
-    python main.py crossref <project>
+Sync:
+    python main.py sync <project> <ref:offset> [--count N]    # one source or target
+    python main.py sync-all <project> [--count N]             # all sources + target
+
+Triage (DB-primary):
+    python main.py triage <project> status
+    python main.py triage <project> list [--bucket X] [--source X]
+    python main.py triage <project> set <ref> <bucket> [target] "<rationale>" [--test path::Name]
+    python main.py triage <project> unset <ref>
+    python main.py triage <project> close <ref> [target]      # real-gap → done
+    python main.py triage <project> export [--out path]       # YAML snapshot
+    python main.py triage <project> import <path>             # bulk load YAML
+    python main.py triage <project> verify                    # drift check (stub)
+
+Per-issue:
     python main.py show <project> <issue_ref>
-    python main.py link <project> <feature> <target_issue#> [source_evidence]
-    python main.py mark <project> <feature> <status>
-    python main.py note <project> <issue_ref> <note_text> [--set]
+    python main.py note <project> <issue_ref> "<text>" [--set]
     python main.py notes <project> [filter]
 
-Example:
-    python main.py sync mcpkit go-sdk:0        # sync go-sdk from offset 0
-    python main.py sync mcpkit spec:100        # sync spec from offset 100
-    python main.py sync mcpkit 0               # auto-select if single source
-    python main.py report mcpkit
-    python main.py crossref mcpkit
-    python main.py show mcpkit go-sdk:666
-    python main.py show mcpkit 56
-    python main.py note mcpkit go-sdk:148 "OAuth token caching"                   # appends
-    python main.py note mcpkit go-sdk:148 "[pass] test_oauth_refresh passes"     # appends
-    python main.py note mcpkit 42 "new note" --set                               # overwrites all
-    python main.py notes mcpkit                # list all issues with notes
-    python main.py notes mcpkit route:servicekit  # filter by routing tag
+Legacy (pre-YAML gap workflow, still works):
+    python main.py link <project> <feature> <target#> [source_evidence]
+    python main.py mark <project> <feature> <status>
+    python main.py report <project> [--by-priority]
+    python main.py crossref <project>
+    python main.py reconcile <project>
+
+Examples:
+    python main.py sync-all mcpkit
+    python main.py triage mcpkit status
+    python main.py triage mcpkit set ext-apps:298 real-gap mcpkit#190 "No template support"
+    python main.py triage mcpkit list --bucket real-gap
+    python main.py triage mcpkit close ext-apps:298
+    python main.py triage mcpkit export --out mcpkit/triage.snapshot.yaml
 """
 
 import json
@@ -38,6 +50,7 @@ import sys
 from datetime import datetime, timezone
 from pathlib import Path
 
+import yaml
 from rich.console import Console
 from rich.table import Table
 from rich.text import Text
@@ -101,6 +114,19 @@ def _create_tables(db: sqlite3.Connection):
             issue_count INTEGER NOT NULL,
             offset_used INTEGER DEFAULT 0,
             count_used  INTEGER DEFAULT 100
+        );
+
+        CREATE TABLE IF NOT EXISTS triage (
+            repo          TEXT NOT NULL,
+            number        INTEGER NOT NULL,
+            bucket        TEXT NOT NULL,
+            target        TEXT DEFAULT '',
+            rationale     TEXT DEFAULT '',
+            test          TEXT DEFAULT '',
+            classified_at TEXT NOT NULL DEFAULT (datetime('now')),
+            updated_at    TEXT NOT NULL DEFAULT (datetime('now')),
+            PRIMARY KEY (repo, number),
+            FOREIGN KEY (repo, number) REFERENCES issues(repo, number)
         );
     """)
 
@@ -256,6 +282,28 @@ def cmd_sync(project: str, source_label: str | None, offset: int, count: int = 1
 
     total = db.execute("SELECT COUNT(*) as c FROM issues").fetchone()["c"]
     print(f"\nTotal issues in DB: {total}")
+
+
+def cmd_sync_all(project: str, count: int = 100):
+    """Sync all sources + target, each from offset 0. Convenience wrapper."""
+    config = get_config(project)
+    db = get_db(project)
+
+    print(f"=== Gap Tracker: {project} — sync-all ===")
+    print(f"Time: {datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M:%S UTC')}")
+    print()
+
+    targets: list[tuple[str, str]] = [(s["label"], s["repo"]) for s in config["sources"]]
+    targets.append(("target", config["target_repo"]))
+
+    for label, repo in targets:
+        print(f"[{label}] {repo}")
+        sync_repo(db, repo, offset=0, count=count)
+    db.commit()
+
+    total = db.execute("SELECT COUNT(*) as c FROM issues").fetchone()["c"]
+    print(f"\nTotal issues in DB: {total}")
+
 
 
 # ---------------------------------------------------------------------------
@@ -686,7 +734,34 @@ def cmd_show(project: str, issue_ref: str):
         print(f"  Labels: {row['labels']}")
     print(f"  URL: {row['url']}")
     print(f"  Created: {row['created_at']}  Updated: {row['updated_at']}")
-    notes = _load_notes(row["notes"])
+
+    # Show triage classification (authoritative — from triage table)
+    t = db.execute(
+        "SELECT bucket, target, rationale, test, classified_at, updated_at "
+        "FROM triage WHERE repo = ? AND number = ?",
+        (repo, number),
+    ).fetchone()
+    if t:
+        print(f"  ┌─ Triage: {t['bucket']}"
+              + (f"  →  {t['target']}" if t["target"] else "")
+              + f"  (classified {t['classified_at'][:10]}"
+              + (f", updated {t['updated_at'][:10]}" if t['updated_at'] != t['classified_at'] else "")
+              + ")")
+        if t["test"]:
+            print(f"  │  test: {t['test']}")
+        if t["rationale"]:
+            # Wrap long rationales
+            rationale = t["rationale"]
+            print(f"  │  rationale: {rationale[:70]}")
+            for i in range(70, len(rationale), 70):
+                print(f"  │             {rationale[i:i+70]}")
+        print(f"  └─")
+
+    # Show ad-hoc notes (excluding the legacy [triage:...] entries now
+    # superseded by the triage table)
+    all_notes = _load_notes(row["notes"])
+    notes = [n for n in all_notes
+             if not (isinstance(n, dict) and n.get("text", "").startswith("[triage:"))]
     if notes:
         print(f"  Notes ({len(notes)}):")
         for n in notes:
@@ -722,6 +797,91 @@ def cmd_show(project: str, issue_ref: str):
     else:
         print("  (no body)")
     print()
+
+
+def cmd_reconcile(project: str):
+    """Sync target repo issues, then update gap statuses to match."""
+    config = get_config(project)
+    db = get_db(project)
+    target_repo = config["target_repo"]
+
+    # Step 1: sync target repo to get fresh issue states
+    console.rule(f"[bold]Syncing target repo: {target_repo}[/bold]")
+    sync_repo(db, target_repo, offset=0, count=1000)
+    print()
+
+    # Step 2: find all gaps that could change
+    gaps = db.execute("""
+        SELECT g.feature, g.target_issue, g.status, g.notes,
+               i.state AS issue_state, i.title AS issue_title
+        FROM gaps g
+        LEFT JOIN issues i ON i.repo = ? AND i.number = g.target_issue
+        WHERE g.target_issue > 0
+          AND g.status IN ('open', 'in-progress')
+    """, (target_repo,)).fetchall()
+
+    if not gaps:
+        console.print("[dim]No open/in-progress gaps with linked issues.[/dim]")
+        return
+
+    # Step 3: reconcile
+    changed = []
+    unchanged = []
+    missing = []
+
+    for gap in gaps:
+        feature = gap["feature"]
+        issue_num = gap["target_issue"]
+        issue_state = gap["issue_state"]
+        old_status = gap["status"]
+
+        if issue_state is None:
+            # Issue not in our DB — may not have been synced yet
+            missing.append((feature, issue_num))
+            continue
+
+        if issue_state == "CLOSED":
+            # Update gap to closed
+            now = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+            db.execute(
+                "UPDATE gaps SET status = 'closed', updated_at = datetime('now') WHERE feature = ?",
+                (feature,),
+            )
+            # Append a note
+            notes = _load_notes(gap["notes"])
+            notes.append({
+                "text": f"[reconcile] #{issue_num} closed — gap resolved ({now})",
+                "at": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
+            })
+            db.execute("UPDATE gaps SET notes = ? WHERE feature = ?", (json.dumps(notes), feature))
+            changed.append((feature, issue_num, old_status, gap["issue_title"]))
+        else:
+            unchanged.append((feature, issue_num, old_status))
+
+    db.commit()
+
+    # Step 4: report
+    if changed:
+        t = Table(title=f"Closed ({len(changed)})", show_header=True, title_style="bold green",
+                  padding=(0, 1), expand=True)
+        t.add_column("Feature", style="bold")
+        t.add_column("Issue", width=6)
+        t.add_column("Was", width=12)
+        t.add_column("Issue Title")
+        for feature, num, old, title in changed:
+            t.add_row(feature, f"#{num}", old, title or "")
+        console.print(t)
+        print()
+
+    if unchanged:
+        console.print(f"[dim]Unchanged: {len(unchanged)} gaps still open[/dim]")
+
+    if missing:
+        console.print(f"[yellow]Warning: {len(missing)} gaps reference issues not found in DB:[/yellow]")
+        for feature, num in missing:
+            console.print(f"  {feature} → #{num}")
+
+    console.print(f"\n[bold]Reconciled: {len(changed)} closed, {len(unchanged)} unchanged, {len(missing)} missing[/bold]")
 
 
 def cmd_mark(project: str, feature: str, status: str):
@@ -846,6 +1006,458 @@ def cmd_notes(project: str, filter_text: str = ""):
 # CLI
 # ---------------------------------------------------------------------------
 
+# ---------------------------------------------------------------------------
+# Triage: DB-backed classification of source issues into buckets
+#
+# Source of truth: the `triage` table in gaps.db. YAML is export-on-demand only.
+# See docs/STATE_MACHINE.md for the full flow model.
+# ---------------------------------------------------------------------------
+
+TRIAGE_BUCKETS = {
+    "real-gap",
+    "already-covered",
+    "defer-spec-flux",
+    "defer-scope",
+    "not-applicable",
+    "done",
+}
+
+BUCKET_ORDER = [
+    "real-gap", "already-covered", "defer-spec-flux",
+    "defer-scope", "not-applicable", "done",
+]
+
+TRIAGE_SNAPSHOT_HEADER = """# GENERATED — DO NOT EDIT
+#
+# Snapshot of the triage table in gaps.db for project: {project}
+# Exported: {exported_at}
+#
+# This file is a point-in-time export. Edits here are NOT authoritative —
+# run `uv run python main.py triage {project} import <file>` to bulk-load a
+# YAML back into the DB (rare reverse path).
+#
+# Buckets:
+#   real-gap         — failing repro test exists; GH issue filed; track until fixed.
+#   already-covered  — passing verification test exists; no new issue needed.
+#   defer-spec-flux  — upstream spec still moving; re-review on daily sync.
+#   defer-scope      — host-side / out-of-scope for our libraries; unlikely to implement.
+#   not-applicable   — truly unrelated (other languages, end-user bugs, example fixes).
+#   done             — previously a real-gap, now fixed and closed.
+
+"""
+
+
+def _source_label_to_repo(config: dict, label: str) -> str | None:
+    for s in config["sources"]:
+        if s["label"] == label:
+            return s["repo"]
+    if label == "target":
+        return config["target_repo"]
+    return None
+
+
+def _repo_to_source_label(config: dict, repo: str) -> str:
+    if repo == config.get("target_repo"):
+        return "target"
+    for s in config["sources"]:
+        if s["repo"] == repo:
+            return s["label"]
+    return repo  # fall back to full repo name
+
+
+def _parse_issue_ref(config: dict, issue_ref: str) -> tuple[str, str, int]:
+    """Parse '<label>:<number>' → (label, repo, number). Exits on error."""
+    if ":" not in issue_ref:
+        print(f"issue_ref must be in form '<source>:<number>' (e.g. 'ext-apps:48'), got {issue_ref!r}")
+        sys.exit(1)
+    label, num_str = issue_ref.rsplit(":", 1)
+    try:
+        number = int(num_str)
+    except ValueError:
+        print(f"Invalid issue number: {num_str!r}")
+        sys.exit(1)
+    repo = _source_label_to_repo(config, label)
+    if not repo:
+        available = ", ".join(s["label"] for s in config["sources"]) + ", target"
+        print(f"Unknown source label '{label}'. Available: {available}")
+        sys.exit(1)
+    return label, repo, number
+
+
+def cmd_triage_set(project: str, issue_ref: str, bucket: str,
+                   target: str = "", rationale: str = "", test: str = ""):
+    """Upsert a classification. Writes directly to the triage table."""
+    if bucket not in TRIAGE_BUCKETS:
+        print(f"Invalid bucket '{bucket}'. Must be one of: {', '.join(sorted(TRIAGE_BUCKETS))}")
+        sys.exit(1)
+    if not rationale:
+        print("Rationale is required. Explain why this bucket applies.")
+        sys.exit(1)
+
+    config = get_config(project)
+    db = get_db(project)
+    label, repo, number = _parse_issue_ref(config, issue_ref)
+
+    exists = db.execute(
+        "SELECT 1 FROM issues WHERE repo = ? AND number = ?", (repo, number)
+    ).fetchone()
+    if not exists:
+        print(f"Issue {label}:{number} not in DB. Run sync first.")
+        sys.exit(1)
+
+    db.execute("""
+        INSERT INTO triage (repo, number, bucket, target, rationale, test, classified_at, updated_at)
+        VALUES (?, ?, ?, ?, ?, ?, datetime('now'), datetime('now'))
+        ON CONFLICT(repo, number) DO UPDATE SET
+            bucket = excluded.bucket,
+            target = excluded.target,
+            rationale = excluded.rationale,
+            test = CASE WHEN excluded.test != '' THEN excluded.test ELSE triage.test END,
+            updated_at = datetime('now')
+    """, (repo, number, bucket, target or "", rationale, test or ""))
+    db.commit()
+
+    extras = []
+    if target:
+        extras.append(f"target: {target}")
+    if test:
+        extras.append(f"test: {test}")
+    suffix = f" ({', '.join(extras)})" if extras else ""
+    print(f"Set {label}:{number} → {bucket}{suffix}")
+
+
+def cmd_triage_unset(project: str, issue_ref: str):
+    """Remove a classification. Deletes the triage row."""
+    config = get_config(project)
+    db = get_db(project)
+    label, repo, number = _parse_issue_ref(config, issue_ref)
+
+    row = db.execute(
+        "SELECT 1 FROM triage WHERE repo = ? AND number = ?", (repo, number)
+    ).fetchone()
+    if not row:
+        print(f"{label}:{number} not classified; nothing to unset.")
+        return
+
+    db.execute("DELETE FROM triage WHERE repo = ? AND number = ?", (repo, number))
+    db.commit()
+    print(f"Unset {label}:{number}")
+
+
+def cmd_triage_close(project: str, issue_ref: str, target_override: str = ""):
+    """Flip a real-gap/already-covered row to 'done'. Requires the target mcpkit
+    issue to be CLOSED in the DB — refuses otherwise to keep the classification
+    honest. Run `sync <project> target:0` first if the target was just closed.
+    """
+    config = get_config(project)
+    db = get_db(project)
+    label, repo, number = _parse_issue_ref(config, issue_ref)
+
+    row = db.execute(
+        "SELECT bucket, target, rationale, test FROM triage WHERE repo = ? AND number = ?",
+        (repo, number),
+    ).fetchone()
+    if not row:
+        print(f"{label}:{number} is not classified. Use `triage set` first.")
+        sys.exit(1)
+
+    # Determine which target issue to verify
+    target = target_override or row["target"] or ""
+    if not target:
+        print(f"{label}:{number} has no target issue recorded. "
+              f"Pass one explicitly: triage close {project} {issue_ref} <target>")
+        sys.exit(1)
+
+    # Parse target like "mcpkit#190" or "panyam/mcpkit#190"
+    if "#" not in target:
+        print(f"Target {target!r} must be in form '<repo>#<number>' or '<shortname>#<number>'")
+        sys.exit(1)
+    target_repo_part, target_num_str = target.rsplit("#", 1)
+    try:
+        target_num = int(target_num_str)
+    except ValueError:
+        print(f"Invalid target issue number: {target_num_str!r}")
+        sys.exit(1)
+
+    # Resolve short name ("mcpkit" → "panyam/mcpkit") via config
+    target_repo_full = config["target_repo"]
+    if "/" not in target_repo_part:
+        # short form — verify it matches the configured target
+        if not target_repo_full.endswith("/" + target_repo_part):
+            print(f"Target {target_repo_part!r} doesn't match configured target_repo {target_repo_full!r}")
+            sys.exit(1)
+    else:
+        target_repo_full = target_repo_part
+
+    # Look up the target issue state
+    target_row = db.execute(
+        "SELECT state, title FROM issues WHERE repo = ? AND number = ?",
+        (target_repo_full, target_num),
+    ).fetchone()
+    if not target_row:
+        print(f"Target {target_repo_full}#{target_num} not in DB. "
+              f"Run `sync {project} target:0` to refresh target state.")
+        sys.exit(1)
+    if target_row["state"] != "CLOSED":
+        print(f"Refusing to close: target {target_repo_full}#{target_num} "
+              f"is still {target_row['state']!r}. Fix the gap first, or reclassify manually.")
+        sys.exit(1)
+
+    # Flip bucket, append a note
+    new_rationale = (row["rationale"] or "") + \
+        f" [closed via triage close on {datetime.now(timezone.utc).strftime('%Y-%m-%d')} — target {target_repo_full}#{target_num} is CLOSED]"
+    db.execute("""
+        UPDATE triage SET bucket = 'done', target = ?, rationale = ?, updated_at = datetime('now')
+        WHERE repo = ? AND number = ?
+    """, (f"mcpkit#{target_num}" if target_repo_full == "panyam/mcpkit" else target, new_rationale, repo, number))
+    db.commit()
+    print(f"Closed {label}:{number} → done (target {target_repo_full}#{target_num} CLOSED)")
+
+
+def cmd_triage_list(project: str, bucket: str | None = None, source: str | None = None):
+    """Show classifications grouped by bucket, filtered by optional bucket/source."""
+    config = get_config(project)
+    db = get_db(project)
+
+    if bucket and bucket not in TRIAGE_BUCKETS:
+        print(f"Invalid bucket filter '{bucket}'.")
+        sys.exit(1)
+
+    # Optional source filter → repo
+    repo_filter = None
+    if source:
+        repo_filter = _source_label_to_repo(config, source)
+        if not repo_filter:
+            print(f"Unknown source '{source}'.")
+            sys.exit(1)
+
+    query = """
+        SELECT t.repo, t.number, t.bucket, t.target, t.rationale, t.test,
+               t.updated_at, i.title, i.state
+        FROM triage t
+        LEFT JOIN issues i ON i.repo = t.repo AND i.number = t.number
+        WHERE 1=1
+    """
+    params: list = []
+    if bucket:
+        query += " AND t.bucket = ?"
+        params.append(bucket)
+    if repo_filter:
+        query += " AND t.repo = ?"
+        params.append(repo_filter)
+    query += " ORDER BY t.bucket, t.repo, t.number"
+
+    rows = db.execute(query, params).fetchall()
+    if not rows:
+        print("No classifications match the filter.")
+        return
+
+    from collections import defaultdict
+    by_bucket: dict[str, list] = defaultdict(list)
+    for r in rows:
+        by_bucket[r["bucket"]].append(r)
+
+    for b in BUCKET_ORDER:
+        items = by_bucket.get(b, [])
+        if not items:
+            continue
+        t = Table(title=f"{b} ({len(items)})", show_header=True, padding=(0, 1),
+                  show_edge=False, expand=True)
+        t.add_column("Ref", no_wrap=True, width=16)
+        t.add_column("State", width=6, no_wrap=True)
+        t.add_column("Title", ratio=2)
+        t.add_column("Target", no_wrap=True, width=14)
+        t.add_column("Rationale", ratio=3, style="cyan")
+        for r in items:
+            label = _repo_to_source_label(config, r["repo"])
+            state = r["state"] or "?"
+            state_style = "green" if state == "CLOSED" else "bold"
+            target = r["target"] or "—"
+            title = (r["title"] or "(not in DB)")[:60]
+            rationale = (r["rationale"] or "")[:120]
+            t.add_row(
+                f"{label}:{r['number']}",
+                Text(state, style=state_style),
+                title,
+                target,
+                rationale,
+            )
+        console.print(t)
+        console.print()
+
+
+def cmd_triage_status(project: str):
+    """Show bucket counts + any open issues that have no triage entry (per source)."""
+    config = get_config(project)
+    db = get_db(project)
+
+    summary = Table(title=f"Triage status: {project}", show_header=True, padding=(0, 1),
+                    show_edge=False)
+    summary.add_column("Source", no_wrap=True)
+    summary.add_column("Open", justify="right", width=6)
+    summary.add_column("Classified", justify="right", width=10)
+    summary.add_column("Unclassified", justify="right", width=12, style="yellow")
+    for b in BUCKET_ORDER:
+        summary.add_column(b, justify="right", width=max(6, len(b)))
+
+    unclassified_by_source: dict[str, list] = {}
+    for s in config["sources"]:
+        label = s["label"]
+        repo = s["repo"]
+        open_rows = db.execute(
+            "SELECT number, title FROM issues WHERE repo = ? AND state = 'OPEN' ORDER BY number",
+            (repo,),
+        ).fetchall()
+
+        # Bucket breakdown from triage table
+        from collections import Counter
+        bucket_counts: Counter = Counter()
+        classified_nums: set[int] = set()
+        for br in db.execute(
+            "SELECT number, bucket FROM triage WHERE repo = ?", (repo,)
+        ).fetchall():
+            bucket_counts[br["bucket"]] += 1
+            classified_nums.add(br["number"])
+
+        total_open = len(open_rows)
+        classified_open = sum(1 for r in open_rows if r["number"] in classified_nums)
+        unclassified = [r for r in open_rows if r["number"] not in classified_nums]
+        unclassified_by_source[label] = unclassified
+
+        row = [label, str(total_open), str(classified_open), str(len(unclassified))]
+        for b in BUCKET_ORDER:
+            row.append(str(bucket_counts.get(b, 0)))
+        summary.add_row(*row)
+
+    console.print(summary)
+    console.print()
+
+    shown_any = False
+    for label, items in unclassified_by_source.items():
+        if not items:
+            continue
+        shown_any = True
+        t = Table(title=f"Unclassified — {label} ({len(items)})",
+                  show_header=True, padding=(0, 1), show_edge=False, expand=True)
+        t.add_column("Ref", no_wrap=True, width=16)
+        t.add_column("Title", ratio=1)
+        for r in items:
+            t.add_row(f"{label}:{r['number']}", r["title"][:100])
+        console.print(t)
+        console.print()
+
+    if not shown_any:
+        console.print("[green]All open issues across all sources are classified.[/green]")
+
+
+def cmd_triage_export(project: str, out_path: str | None = None):
+    """Write a YAML snapshot of the triage table. Default path: <project>/triage.snapshot.yaml."""
+    config = get_config(project)
+    db = get_db(project)
+
+    rows = db.execute("""
+        SELECT repo, number, bucket, target, rationale, test
+        FROM triage ORDER BY repo, number
+    """).fetchall()
+
+    # Shape: {source_label: {number: {bucket, ...}}}
+    by_label: dict[str, dict[int, dict]] = {}
+    for r in rows:
+        label = _repo_to_source_label(config, r["repo"])
+        entry: dict = {"bucket": r["bucket"], "rationale": r["rationale"] or ""}
+        if r["target"]:
+            entry["target"] = r["target"]
+        if r["test"]:
+            entry["test"] = r["test"]
+        by_label.setdefault(label, {})[r["number"]] = entry
+
+    ordered = {label: {n: by_label[label][n] for n in sorted(by_label[label])}
+               for label in sorted(by_label)}
+
+    path = Path(out_path) if out_path else (SCRIPT_DIR / project / "triage.snapshot.yaml")
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with path.open("w") as f:
+        f.write(TRIAGE_SNAPSHOT_HEADER.format(
+            project=project,
+            exported_at=datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S UTC"),
+        ))
+        yaml.safe_dump(ordered, f, sort_keys=False, default_flow_style=False,
+                       width=100, allow_unicode=True)
+
+    total = sum(len(v) for v in ordered.values())
+    print(f"Exported {total} classifications to {path}")
+
+
+def cmd_triage_import(project: str, in_path: str):
+    """Bulk-upsert triage entries from a YAML file. Rare reverse path."""
+    config = get_config(project)
+    db = get_db(project)
+
+    path = Path(in_path)
+    if not path.exists():
+        print(f"File not found: {path}")
+        sys.exit(1)
+
+    with path.open() as f:
+        data = yaml.safe_load(f) or {}
+
+    imported = 0
+    skipped = 0
+    for label, entries in data.items():
+        repo = _source_label_to_repo(config, label)
+        if not repo:
+            print(f"WARN: unknown source label '{label}'; skipping {len(entries)} entries.")
+            continue
+        for num, entry in entries.items():
+            try:
+                number = int(num)
+            except (ValueError, TypeError):
+                continue
+            if not isinstance(entry, dict) or entry.get("bucket") not in TRIAGE_BUCKETS:
+                continue
+            exists = db.execute(
+                "SELECT 1 FROM issues WHERE repo = ? AND number = ?", (repo, number)
+            ).fetchone()
+            if not exists:
+                skipped += 1
+                continue
+            db.execute("""
+                INSERT INTO triage (repo, number, bucket, target, rationale, test, classified_at, updated_at)
+                VALUES (?, ?, ?, ?, ?, ?, datetime('now'), datetime('now'))
+                ON CONFLICT(repo, number) DO UPDATE SET
+                    bucket = excluded.bucket,
+                    target = excluded.target,
+                    rationale = excluded.rationale,
+                    test = excluded.test,
+                    updated_at = datetime('now')
+            """, (
+                repo, number,
+                entry["bucket"],
+                entry.get("target", "") or "",
+                entry.get("rationale", "") or "",
+                entry.get("test", "") or "",
+            ))
+            imported += 1
+    db.commit()
+    print(f"Imported {imported} classifications from {path}"
+          + (f" (skipped {skipped} with no matching issue row)" if skipped else ""))
+
+
+def cmd_triage_verify(project: str):
+    """Run pinned tests for real-gap/already-covered rows and flag drift. Stub."""
+    console.print("[yellow]triage verify[/yellow] is not implemented yet. "
+                  "Planned behavior: for each row with a `test:` field, run the test "
+                  "in target_path and compare pass/fail against the bucket. Flag mismatches "
+                  "(real-gap → pass = should flip to done; already-covered → fail = regression).")
+    config = get_config(project)
+    target_path = config.get("target_path")
+    if target_path:
+        console.print(f"When built, tests will run in: [cyan]{target_path}[/cyan]")
+    else:
+        console.print("[yellow]WARN:[/yellow] config.json has no `target_path` field; "
+                      "triage verify will need one before it can run tests.")
+
+
 def _parse_int_flag(args: list[str], flag: str, default: int) -> int:
     if flag in args:
         idx = args.index(flag)
@@ -913,6 +1525,104 @@ def main():
             cmd_note(project, args[0], " ".join(args[1:]), overwrite=overwrite)
         case "notes":
             cmd_notes(project, extra[0] if extra else "")
+        case "reconcile":
+            cmd_reconcile(project)
+        case "sync-all":
+            count = _parse_int_flag(extra, "--count", 100)
+            cmd_sync_all(project, count=count)
+        case "triage":
+            if not extra:
+                print("usage: triage <project> <verb> [args]")
+                print("  verbs:")
+                print("    set <ref> <bucket> [target] <rationale> [--test path::TestName]")
+                print("                                      upsert classification")
+                print("    unset <ref>                       remove classification")
+                print("    close <ref> [target]              flip real-gap → done (requires target CLOSED)")
+                print("    list [--bucket X] [--source X]    grouped view")
+                print("    status                            counts + any unclassified open issues")
+                print("    export [--out path]               write YAML snapshot")
+                print("    import <path>                     bulk-upsert from YAML")
+                print("    verify                            drift check (stub)")
+                print()
+                print(f"  buckets: {', '.join(sorted(TRIAGE_BUCKETS))}")
+                print()
+                print("  See docs/STATE_MACHINE.md for the full flow model.")
+                sys.exit(1)
+            verb = extra[0]
+            rest = extra[1:]
+            match verb:
+                case "set":
+                    # set <ref> <bucket> [target] <rationale...> [--test path::TestName]
+                    # Extract --test first
+                    test_path = ""
+                    if "--test" in rest:
+                        idx = rest.index("--test")
+                        if idx + 1 < len(rest):
+                            test_path = rest[idx + 1]
+                            rest = rest[:idx] + rest[idx + 2:]
+                    if len(rest) < 3:
+                        print("usage: triage <project> set <ref> <bucket> [target] <rationale...> [--test path::TestName]")
+                        print("  e.g., triage mcpkit set ext-apps:298 real-gap mcpkit#190 \"No template support\"")
+                        print("  e.g., triage mcpkit set ext-apps:26 not-applicable \"IANA admin task\"")
+                        sys.exit(1)
+                    ref = rest[0]
+                    bucket = rest[1]
+                    # If third arg looks like a target token, treat as target; else rationale
+                    target = ""
+                    rationale_parts = rest[2:]
+                    if len(rest) >= 4:
+                        candidate = rest[2]
+                        if re.fullmatch(r"[A-Za-z0-9_./#-]+", candidate) and " " not in candidate:
+                            target = candidate
+                            rationale_parts = rest[3:]
+                    rationale = " ".join(rationale_parts)
+                    cmd_triage_set(project, ref, bucket, target=target,
+                                   rationale=rationale, test=test_path)
+                case "unset":
+                    if not rest:
+                        print("usage: triage <project> unset <ref>")
+                        sys.exit(1)
+                    cmd_triage_unset(project, rest[0])
+                case "close":
+                    if not rest:
+                        print("usage: triage <project> close <ref> [target]")
+                        sys.exit(1)
+                    target_override = rest[1] if len(rest) > 1 else ""
+                    cmd_triage_close(project, rest[0], target_override=target_override)
+                case "list":
+                    bucket = None
+                    source = None
+                    i = 0
+                    while i < len(rest):
+                        if rest[i] == "--bucket" and i + 1 < len(rest):
+                            bucket = rest[i + 1]
+                            i += 2
+                        elif rest[i] == "--source" and i + 1 < len(rest):
+                            source = rest[i + 1]
+                            i += 2
+                        else:
+                            i += 1
+                    cmd_triage_list(project, bucket=bucket, source=source)
+                case "status":
+                    cmd_triage_status(project)
+                case "export":
+                    out_path = None
+                    if "--out" in rest:
+                        idx = rest.index("--out")
+                        if idx + 1 < len(rest):
+                            out_path = rest[idx + 1]
+                    cmd_triage_export(project, out_path=out_path)
+                case "import":
+                    if not rest:
+                        print("usage: triage <project> import <path>")
+                        sys.exit(1)
+                    cmd_triage_import(project, rest[0])
+                case "verify":
+                    cmd_triage_verify(project)
+                case _:
+                    print(f"Unknown triage verb: {verb}")
+                    print("  valid: set, unset, close, list, status, export, import, verify")
+                    sys.exit(1)
         case _:
             print(f"Unknown command: {cmd}")
             sys.exit(1)
