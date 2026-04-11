@@ -31,6 +31,8 @@ for the full flow model and developer entry points.`,
 	cmd.AddCommand(newTriageSetCmd())
 	cmd.AddCommand(newTriageUnsetCmd())
 	cmd.AddCommand(newTriageCloseCmd())
+	cmd.AddCommand(newTriageExportCmd())
+	cmd.AddCommand(newTriageImportCmd())
 	return cmd
 }
 

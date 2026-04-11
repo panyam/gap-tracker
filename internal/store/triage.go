@@ -140,3 +140,12 @@ func (s *Store) ListGapsBySourceRef(ref string) ([]model.Gap, error) {
 		Find(&gaps).Error
 	return gaps, err
 }
+
+// AllTriage returns every triage row in the database, ordered for
+// deterministic output. Used by `triage export` to produce the YAML
+// snapshot; callers map repo → source label via config.
+func (s *Store) AllTriage() ([]model.TriageEntry, error) {
+	var rows []model.TriageEntry
+	err := s.db.Order("repo, number").Find(&rows).Error
+	return rows, err
+}
