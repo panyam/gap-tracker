@@ -1,5 +1,6 @@
 {
   "target_repo": "panyam/mcpkit",
+  "target_path": "/Users/dzshrh/newstack/mcpkit/gaptrack",
   "sources": [
     {
       "repo": "modelcontextprotocol/go-sdk",
@@ -8,6 +9,10 @@
     {
       "repo": "modelcontextprotocol/specification",
       "label": "spec"
+    },
+    {
+      "repo": "modelcontextprotocol/ext-apps",
+      "label": "ext-apps"
     }
   ]
 }

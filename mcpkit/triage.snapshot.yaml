@@ -1,0 +1,594 @@
+# GENERATED — DO NOT EDIT
+#
+# Snapshot of the triage table in gaps.db for project: mcpkit
+# Exported: 2026-04-11 18:56:09 UTC
+#
+# This file is a point-in-time export. Edits here are NOT authoritative —
+# run `uv run python main.py triage mcpkit import <file>` to bulk-load a
+# YAML back into the DB (rare reverse path).
+#
+# Buckets:
+#   real-gap         — failing repro test exists; GH issue filed; track until fixed.
+#   already-covered  — passing verification test exists; no new issue needed.
+#   defer-spec-flux  — upstream spec still moving; re-review on daily sync.
+#   defer-scope      — host-side / out-of-scope for our libraries; unlikely to implement.
+#   not-applicable   — truly unrelated (other languages, end-user bugs, example fixes).
+#   done             — previously a real-gap, now fixed and closed.
+
+ext-apps:
+  26:
+    bucket: not-applicable
+    rationale: IANA URI scheme registration is a spec admin task; mcpkit is a server library and has no
+      role here.
+  28:
+    bucket: defer-spec-flux
+    rationale: Non-HTML surfaces (TUI, native) are speculative; spec has no shape yet. Revisit when upstream
+      defines a mimeType or sub-profile.
+  34:
+    bucket: not-applicable
+    rationale: Pattern for wrapping an existing iframe embed as an MCP App is app-developer guidance,
+      not a library feature.
+  35:
+    bucket: defer-scope
+    rationale: WebMCP adoption is a large architectural direction for agent-to-UI comms; wait for upstream.
+  41:
+    bucket: done
+    rationale: Triaged earlier; repro test in ext/ui surfaces the missing field.
+    target: mcpkit#185
+    test: ext/ui/extension_test.go::TestUIMetadata_DisplayModeNegotiation
+  48:
+    bucket: not-applicable
+    rationale: 'ui/* methods are View↔Host postMessage traffic (ext-apps spec 2026-01-26 line 487: ''Host
+      MAY forward any message from the View... for any method that doesn''t start with ui/''). The MCP
+      server never sees ui/message. This is a client SDK vs spec discrepancy, not a mcpkit gap.'
+  53:
+    bucket: not-applicable
+    rationale: Java SDK request; mcpkit is Go-only.
+  58:
+    bucket: defer-spec-flux
+    rationale: Additional sandbox capabilities (camera, microphone, base-uri) still being scoped upstream;
+      UIMetadata.Permissions is freeform today and can carry any string.
+  60:
+    bucket: defer-spec-flux
+    rationale: 'User consent flow for ui/message; depends on first landing ui/message (see #48) and on
+      upstream defining the consent contract.'
+  62:
+    bucket: defer-spec-flux
+    rationale: State rehydration on tool output changes is not yet defined upstream; labelled v2.
+  124:
+    bucket: defer-scope
+    rationale: Shared deps across UI instances is a host/runtime optimization, not a server-library concern.
+  143:
+    bucket: not-applicable
+    rationale: Client-side timing bug in @modelcontextprotocol/ext-apps SDK.
+  147:
+    bucket: defer-scope
+    rationale: Host-backed navigation is a host-side feature; no server-side surface to expose yet.
+  169:
+    bucket: defer-scope
+    rationale: A2UI interoperability research; no concrete spec shape.
+  190:
+    bucket: defer-spec-flux
+    rationale: Tool annotation descriptors are ChatGPT-Apps-specific today; may be adopted by MCP Apps
+      later.
+  191:
+    bucket: defer-spec-flux
+    rationale: ToolResultMeta has no UI field; _meta.ui lives on ToolDef (static, per-registration), not
+      on ToolResult (per-call). mcpkit supports conditional structuredContent inside a statically-declared
+      UI, but toggling _meta.ui per call is a spec-level change upstream would have to make first. Original
+      'already-covered' claim was based on a wrong mental model of where _meta.ui lives on the wire.
+  197:
+    bucket: defer-spec-flux
+    rationale: ui/notifications/tool-input wire shape still being reconciled with OpenAI custom tools
+      upstream.
+  199:
+    bucket: not-applicable
+    rationale: 'Example-specific (threejs-server unsafe-eval); symptom of #605.'
+  201:
+    bucket: defer-spec-flux
+    rationale: Upstream protocol reconciliation between MCP Apps and Apps SDK.
+  213:
+    bucket: defer-spec-flux
+    rationale: Sandbox origin persistence/leakage is a host behavior question with no spec position.
+  269:
+    bucket: defer-spec-flux
+    rationale: Duplicate placement of _meta.ui in resource metadata vs resource read value is a spec clarification;
+      mcpkit already supports both surfaces (core.ToolMeta.UI and core.ResourceContentMeta.UI).
+  298:
+    bucket: real-gap
+    rationale: RegisterAppTool routes template URIs to RegisterResource as literal strings, breaking SSR
+      for per-instance MCP App views. Needs RegisterAppResourceTemplate helper + ToolResourceRegistrar
+      extension.
+    target: mcpkit#190
+    test: ext/ui/app_helpers_test.go::TestRegisterAppTool_TemplateURI_ShouldRegisterAsTemplate
+  318:
+    bucket: defer-spec-flux
+    rationale: text/uri-list mimeType is a proposed extension beyond the HTML-only MVP.
+  319:
+    bucket: defer-spec-flux
+    rationale: Notification when model consumes context is speculative and host-dependent.
+  320:
+    bucket: defer-spec-flux
+    rationale: Finalizing permissions is a spec task; mcpkit carries permissions as freeform []string
+      and will pick up whatever upstream defines.
+  327:
+    bucket: not-applicable
+    rationale: Upstream ext-apps test suite snapshot flakiness.
+  354:
+    bucket: not-applicable
+    rationale: CLI scaffolding tool is an ext-apps ecosystem concern.
+  374:
+    bucket: not-applicable
+    rationale: 'Map server example hits unsafe-eval; symptom of #605.'
+  380:
+    bucket: not-applicable
+    rationale: Spec doc clarification about content vs structuredContent vs _meta; mcpkit handles all
+      three fields correctly.
+  382:
+    bucket: defer-scope
+    rationale: Host CSS variable standardization is a host-side UX question.
+  383:
+    bucket: not-applicable
+    rationale: End-user bug report; not reproducible as a library gap.
+  387:
+    bucket: already-covered
+    rationale: core.UICSPConfig.FrameDomains already exists and maps to frame-src. Existing TestUIMetadataJSONRoundTrip
+      in core/ui_test.go round-trips FrameDomains through JSON (lines 150, 183-185). No new issue needed.
+    target: mcpkit
+    test: core/ui_test.go::TestUIMetadataJSONRoundTrip
+  395:
+    bucket: not-applicable
+    rationale: Claude Desktop client-side bug.
+  402:
+    bucket: defer-scope
+    rationale: Deferred rendering of intermediate-tool-call UI resources is host-side policy.
+  412:
+    bucket: defer-scope
+    rationale: Side panels are a host-side UX layout concern.
+  413:
+    bucket: not-applicable
+    rationale: App portability between ChatGPT and Claude depends on host behavior; no server-library
+      gap.
+  417:
+    bucket: defer-spec-flux
+    rationale: View state persistence; overlaps with setWidgetState (#465). Wait for upstream to pick
+      a shape.
+  419:
+    bucket: defer-spec-flux
+    rationale: TUI support is early research; needs a new mimeType upstream.
+  420:
+    bucket: not-applicable
+    rationale: End-user quickstart env var config issue.
+  423:
+    bucket: not-applicable
+    rationale: Angular example request; not a mcpkit feature.
+  430:
+    bucket: defer-spec-flux
+    rationale: Re-usable views are marked v2; wait for spec.
+  431:
+    bucket: defer-spec-flux
+    rationale: Accessibility guarantees span host + app + runtime; no isolated mcpkit gap.
+  458:
+    bucket: not-applicable
+    rationale: Host calls initialize twice producing split Mcp-Session-Ids; this is host (Claude Desktop)
+      behavior. Our server handles repeated initialize correctly per session.
+  465:
+    bucket: defer-spec-flux
+    rationale: setWidgetState parity; depends on upstream view-state persistence decision (#417).
+  467:
+    bucket: defer-spec-flux
+    rationale: Constraining UI variability (blessed components / style vars) is a spec-level design question.
+  476:
+    bucket: not-applicable
+    rationale: Client SDK bug in @modelcontextprotocol/ext-apps/react useApp hook.
+  481:
+    bucket: not-applicable
+    rationale: 'Claude Desktop host behavior: AppBridge and Model sub-connections get separate session
+      IDs.'
+  482:
+    bucket: not-applicable
+    rationale: Claude client-side widget runtime bug.
+  492:
+    bucket: defer-spec-flux
+    rationale: Propagating invoking-tool identity requires a spec-level protocol field that doesn't exist
+      yet.
+  500:
+    bucket: defer-spec-flux
+    rationale: Slot-based updateModelContext is an upstream proposal.
+  501:
+    bucket: defer-spec-flux
+    rationale: Direct AI processing channel (sendMessage immediate); upstream proposal.
+  502:
+    bucket: not-applicable
+    rationale: autoResize default is client SDK behavior, not mcpkit.
+  511:
+    bucket: real-gap
+    rationale: ElicitationRequest has no _meta surface and ext/ui exposes no elicitation helper. Needs
+      _meta on ElicitationRequest + ext/ui.ElicitWithApp helper + conformance coverage.
+    target: mcpkit#191
+    test: core/elicitation_test.go::TestElicitationRequest_UIMetadata
+  513:
+    bucket: not-applicable
+    rationale: Pyodide load-time is a client webview performance concern.
+  515:
+    bucket: defer-spec-flux
+    rationale: CSP wildcard and scheme-based policies is an upstream spec debate.
+  542:
+    bucket: not-applicable
+    rationale: PostMessageTransport race condition in ext-apps client SDK.
+  558:
+    bucket: defer-scope
+    rationale: Multiple instances of the same app resource is a host-side scoping policy question.
+  566:
+    bucket: defer-spec-flux
+    rationale: worker-src / workerDomains extension; depends on upstream adding WorkerDomains to the spec.
+      When it lands mcpkit needs UICSPConfig.WorkerDomains.
+  574:
+    bucket: not-applicable
+    rationale: downloadFile missing on Claude iOS; host capability.
+  598:
+    bucket: defer-scope
+    rationale: Inline citation modal popups; speculative UX extension.
+  599:
+    bucket: not-applicable
+    rationale: Ecosystem growth / discovery strategy; not a library feature.
+  603:
+    bucket: defer-spec-flux
+    rationale: Streaming HTML resources is a large protocol change affecting resources/read generally.
+  605:
+    bucket: defer-spec-flux
+    rationale: wasm-unsafe-eval CSP directive depends on upstream adding a spec opt-in; UICSPConfig will
+      need a flag when that lands.
+go-sdk:
+  148:
+    bucket: done
+    rationale: Backfilled from gaps table (feature=session-timeout, gap_status=closed, target_state=CLOSED).
+    target: mcpkit#60
+  218:
+    bucket: real-gap
+    rationale: Backfilled from gaps table (feature=server-error-handler, gap_status=open, target_state=OPEN).
+    target: mcpkit#136
+  288:
+    bucket: defer-spec-flux
+    rationale: Backfilled from gaps table (feature=ai-friendly-errors, gap_status=deferred).
+  396:
+    bucket: not-applicable
+    rationale: Backfilled from gaps table (feature=simpler-addtool, gap_status=not-applicable).
+  440:
+    bucket: done
+    rationale: Backfilled from gaps table (feature=handler-close, gap_status=done, target_state=CLOSED).
+    target: mcpkit#73
+  460:
+    bucket: done
+    rationale: Backfilled from gaps table (feature=progress-reporting, gap_status=done, target_state=CLOSED).
+    target: mcpkit#18
+  479:
+    bucket: done
+    rationale: Backfilled from gaps table (feature=session-cleanup-callback, gap_status=closed, target_state=CLOSED).
+    target: mcpkit#60
+  512:
+    bucket: not-applicable
+    rationale: Backfilled from gaps table (feature=standard-jwt-fields, gap_status=not-applicable).
+  533:
+    bucket: real-gap
+    rationale: Backfilled from gaps table (feature=modify-request-hook, gap_status=open, target_state=OPEN).
+    target: mcpkit#135
+  572:
+    bucket: done
+    rationale: Backfilled from gaps table (feature=stdio-stdout-enforcement, gap_status=closed, target_state=CLOSED).
+    target: mcpkit#3
+  579:
+    bucket: real-gap
+    rationale: Backfilled from gaps table (feature=structured-http-errors, gap_status=open, target_state=OPEN).
+    target: mcpkit#134
+  626:
+    bucket: real-gap
+    rationale: Backfilled from gaps table (feature=tasks-sep-1686, gap_status=open, target_state=OPEN).
+    target: mcpkit#25
+  627:
+    bucket: not-applicable
+    rationale: Backfilled from gaps table (feature=oauth-client-credentials, gap_status=not-applicable).
+  639:
+    bucket: done
+    rationale: Backfilled from gaps table (feature=atomic-tool-replacement, gap_status=closed, target_state=CLOSED).
+    target: mcpkit#64
+  657:
+    bucket: not-applicable
+    rationale: Backfilled from gaps table (feature=sse-stream-without-client, gap_status=not-applicable).
+  666:
+    bucket: done
+    rationale: Backfilled from gaps table (feature=dynamic-tool-registration-list-changed, gap_status=closed,
+      target_state=CLOSED).
+    target: mcpkit#64
+  683:
+    bucket: done
+    rationale: Backfilled from gaps table (feature=transient-error-resilience, gap_status=closed, target_state=CLOSED).
+    target: mcpkit#132
+  687:
+    bucket: done
+    rationale: Backfilled from gaps table (feature=sse-path-prefix, gap_status=closed, target_state=CLOSED).
+    target: mcpkit#131
+  691:
+    bucket: not-applicable
+    rationale: Backfilled from gaps table (feature=nil-pointer-output-schema, gap_status=not-applicable).
+  720:
+    bucket: not-applicable
+    rationale: Backfilled from gaps table (feature=examples-on-website, gap_status=not-applicable).
+  735:
+    bucket: real-gap
+    rationale: Backfilled from gaps table (feature=typed-tool-call, gap_status=open, target_state=OPEN).
+    target: mcpkit#133
+  745:
+    bucket: not-applicable
+    rationale: Backfilled from gaps table (feature=expose-send-notification, gap_status=not-applicable).
+  749:
+    bucket: not-applicable
+    rationale: Backfilled from gaps table (feature=schema-cycles, gap_status=not-applicable).
+  815:
+    bucket: not-applicable
+    rationale: Backfilled from gaps table (feature=mcp-apps-extension, gap_status=not-applicable).
+  835:
+    bucket: not-applicable
+    rationale: Backfilled from gaps table (feature=mkdocs-documentation, gap_status=not-applicable).
+  855:
+    bucket: not-applicable
+    rationale: Backfilled from gaps table (feature=race-client-session-close, gap_status=not-applicable).
+  881:
+    bucket: real-gap
+    rationale: Backfilled from gaps table (feature=token-refresh-callback, gap_status=open, target_state=OPEN).
+    target: mcpkit#137
+spec:
+  86:
+    bucket: defer-spec-flux
+    rationale: Backfilled from gaps table (feature=spec-i18n, gap_status=deferred).
+  91:
+    bucket: real-gap
+    rationale: Backfilled from gaps table (feature=content-type-inconsistency, gap_status=open, target_state=OPEN).
+    target: mcpkit#81
+  105:
+    bucket: done
+    rationale: Backfilled from gaps table (feature=sampling-tools-in-calls, gap_status=done, target_state=CLOSED).
+    target: mcpkit#22
+  108:
+    bucket: done
+    rationale: Backfilled from gaps table (feature=message-response-ordering, gap_status=closed, target_state=CLOSED).
+    target: mcpkit#86
+  117:
+    bucket: done
+    rationale: Backfilled from gaps table (feature=streaming-tool-results, gap_status=closed, target_state=CLOSED).
+    target: mcpkit#82
+  118:
+    bucket: defer-spec-flux
+    rationale: Backfilled from gaps table (feature=flexible-resource-embedding, gap_status=deferred).
+  121:
+    bucket: done
+    rationale: Backfilled from gaps table (feature=streaming-sampling, gap_status=done, target_state=CLOSED).
+    target: mcpkit#22
+  125:
+    bucket: defer-spec-flux
+    rationale: Backfilled from gaps table (feature=tool-examples-field, gap_status=deferred).
+  129:
+    bucket: done
+    rationale: Backfilled from gaps table (feature=reject-sampling-request, gap_status=done, target_state=CLOSED).
+    target: mcpkit#22
+  130:
+    bucket: defer-spec-flux
+    rationale: Backfilled from gaps table (feature=json-resource-type, gap_status=deferred).
+  136:
+    bucket: real-gap
+    rationale: Backfilled from gaps table (feature=prompt-jsonschema-params, gap_status=open, target_state=OPEN).
+    target: mcpkit#87
+  155:
+    bucket: defer-spec-flux
+    rationale: Backfilled from gaps table (feature=tool-attachments, gap_status=deferred).
+  156:
+    bucket: done
+    rationale: Backfilled from gaps table (feature=inputschema-extra-fields, gap_status=done, target_state=CLOSED).
+    target: mcpkit#83
+  179:
+    bucket: defer-spec-flux
+    rationale: Backfilled from gaps table (feature=event-subscription, gap_status=deferred).
+  229:
+    bucket: done
+    rationale: Backfilled from gaps table (feature=tool-call-pagination, gap_status=closed, target_state=CLOSED).
+    target: mcpkit#85
+  231:
+    bucket: done
+    rationale: Backfilled from gaps table (feature=client-defined-session-ids, gap_status=closed, target_state=CLOSED).
+    target: mcpkit#88
+  264:
+    bucket: done
+    rationale: Backfilled from gaps table (feature=meta-on-calltoolresult, gap_status=done, target_state=CLOSED).
+    target: mcpkit#84
+  282:
+    bucket: done
+    rationale: Backfilled from gaps table (feature=session-timeout, gap_status=closed, target_state=CLOSED).
+    target: mcpkit#60
+  292:
+    bucket: defer-spec-flux
+    rationale: Backfilled from gaps table (feature=standard-config-schema, gap_status=deferred).
+  358:
+    bucket: defer-spec-flux
+    rationale: Backfilled from gaps table (feature=cross-language-type-models, gap_status=deferred).
+  394:
+    bucket: defer-spec-flux
+    rationale: Backfilled from gaps table (feature=schema-version-identifier, gap_status=deferred).
+  403:
+    bucket: defer-spec-flux
+    rationale: Backfilled from gaps table (feature=file-server-root-paths, gap_status=deferred).
+  430:
+    bucket: done
+    rationale: Backfilled from gaps table (feature=notification-delivery-order, gap_status=done, target_state=CLOSED).
+    target: mcpkit#75
+  476:
+    bucket: defer-spec-flux
+    rationale: Backfilled from gaps table (feature=spec-versioning-scheme, gap_status=deferred).
+  493:
+    bucket: defer-spec-flux
+    rationale: Backfilled from gaps table (feature=websocket-transport, gap_status=deferred).
+  503:
+    bucket: done
+    rationale: Backfilled from gaps table (feature=sampling-agent-reframe, gap_status=done, target_state=CLOSED).
+    target: mcpkit#22
+  505:
+    bucket: defer-spec-flux
+    rationale: Backfilled from gaps table (feature=non-file-roots, gap_status=deferred).
+  508:
+    bucket: defer-spec-flux
+    rationale: Backfilled from gaps table (feature=spec-docs-jsonschema, gap_status=deferred).
+  509:
+    bucket: done
+    rationale: Backfilled from gaps table (feature=jsonrpc-error-codes, gap_status=closed, target_state=CLOSED).
+    target: mcpkit#74
+  527:
+    bucket: real-gap
+    rationale: Backfilled from gaps table (feature=large-resource-streaming, gap_status=open, target_state=OPEN).
+    target: mcpkit#79
+  540:
+    bucket: real-gap
+    rationale: Backfilled from gaps table (feature=pre-auth-discovery, gap_status=open, target_state=OPEN).
+    target: mcpkit#76
+  566:
+    bucket: done
+    rationale: Backfilled from gaps table (feature=resource-template-id, gap_status=closed, target_state=CLOSED).
+    target: mcpkit#80
+  569:
+    bucket: done
+    rationale: Backfilled from gaps table (feature=tool-output-schema-errors, gap_status=done, target_state=CLOSED).
+    target: mcpkit#77
+  578:
+    bucket: defer-spec-flux
+    rationale: Backfilled from gaps table (feature=llms-full-too-long, gap_status=deferred).
+  581:
+    bucket: real-gap
+    rationale: Backfilled from gaps table (feature=protected-metadata-fallback, gap_status=open, target_state=OPEN).
+    target: mcpkit#78
+  610:
+    bucket: defer-spec-flux
+    rationale: Backfilled from gaps table (feature=list-schemas-protocol, gap_status=deferred).
+  611:
+    bucket: defer-spec-flux
+    rationale: Backfilled from gaps table (feature=event-subscription, gap_status=deferred).
+  637:
+    bucket: defer-spec-flux
+    rationale: Backfilled from gaps table (feature=roots-template, gap_status=deferred).
+  693:
+    bucket: defer-spec-flux
+    rationale: Backfilled from gaps table (feature=display-name-inputs, gap_status=deferred).
+  697:
+    bucket: real-gap
+    rationale: Backfilled from gaps table (feature=template-backreferences, gap_status=open, target_state=OPEN).
+    target: mcpkit#143
+  699:
+    bucket: real-gap
+    rationale: Backfilled from gaps table (feature=embedded-resource-cardinality, gap_status=open, target_state=OPEN).
+    target: mcpkit#145
+  704:
+    bucket: not-applicable
+    rationale: Backfilled from gaps table (feature=sdk-code-snippets, gap_status=not-applicable).
+  705:
+    bucket: not-applicable
+    rationale: Backfilled from gaps table (feature=notification-naming, gap_status=not-applicable).
+  729:
+    bucket: not-applicable
+    rationale: Backfilled from gaps table (feature=spec-security-docs, gap_status=not-applicable).
+  763:
+    bucket: defer-spec-flux
+    rationale: Backfilled from gaps table (feature=advanced-audience-validation, gap_status=deferred).
+  774:
+    bucket: not-applicable
+    rationale: Backfilled from gaps table (feature=elicitation-guidance, gap_status=not-applicable).
+  823:
+    bucket: defer-spec-flux
+    rationale: Backfilled from gaps table (feature=stdio-safety-multiconvo, gap_status=deferred).
+  834:
+    bucket: real-gap
+    rationale: Backfilled from gaps table (feature=json-schema-2020-12, gap_status=open, target_state=OPEN).
+    target: mcpkit#142
+  840:
+    bucket: defer-spec-flux
+    rationale: Backfilled from gaps table (feature=logging-best-practices, gap_status=deferred).
+  910:
+    bucket: defer-spec-flux
+    rationale: Backfilled from gaps table (feature=prescriptive-client-behavior, gap_status=deferred).
+  956:
+    bucket: defer-spec-flux
+    rationale: Backfilled from gaps table (feature=structured-resource-io, gap_status=deferred).
+  963:
+    bucket: real-gap
+    rationale: Backfilled from gaps table (feature=client-capability-declaration, gap_status=open, target_state=OPEN).
+    target: mcpkit#144
+  984:
+    bucket: not-applicable
+    rationale: Backfilled from gaps table (feature=session-intent-clarification, gap_status=not-applicable).
+  1032:
+    bucket: defer-spec-flux
+    rationale: Backfilled from gaps table (feature=dcr-software-statement, gap_status=deferred).
+  1053:
+    bucket: not-applicable
+    rationale: Backfilled from gaps table (feature=streamable-http-clarification, gap_status=not-applicable).
+  1058:
+    bucket: not-applicable
+    rationale: Backfilled from gaps table (feature=spec-security-chore, gap_status=not-applicable).
+  1281:
+    bucket: defer-spec-flux
+    rationale: Backfilled from gaps table (feature=version-negotiation-challenges, gap_status=deferred).
+  1282:
+    bucket: real-gap
+    rationale: Backfilled from gaps table (feature=sampling-content-list, gap_status=open, target_state=OPEN).
+    target: mcpkit#141
+  1642:
+    bucket: defer-spec-flux
+    rationale: Backfilled from gaps table (feature=method-naming-consistency, gap_status=deferred).
+  1650:
+    bucket: defer-spec-flux
+    rationale: Backfilled from gaps table (feature=rfc8414-integration, gap_status=deferred).
+  1655:
+    bucket: defer-spec-flux
+    rationale: Backfilled from gaps table (feature=client-state-management, gap_status=deferred).
+  1660:
+    bucket: not-applicable
+    rationale: Backfilled from gaps table (feature=claude-maintainer, gap_status=not-applicable).
+  1662:
+    bucket: not-applicable
+    rationale: Backfilled from gaps table (feature=kiro-maintainer, gap_status=not-applicable).
+  1666:
+    bucket: not-applicable
+    rationale: Backfilled from gaps table (feature=gemini-maintainer, gap_status=not-applicable).
+  1667:
+    bucket: done
+    rationale: Backfilled from gaps table (feature=ping-before-initialize, gap_status=closed, target_state=CLOSED).
+    target: mcpkit#140
+  1669:
+    bucket: defer-spec-flux
+    rationale: Backfilled from gaps table (feature=multi-connection-manager, gap_status=deferred).
+  1670:
+    bucket: defer-spec-flux
+    rationale: Backfilled from gaps table (feature=rich-authz-requests, gap_status=deferred).
+  1685:
+    bucket: defer-spec-flux
+    rationale: Backfilled from gaps table (feature=state-meta-field, gap_status=deferred).
+  1720:
+    bucket: done
+    rationale: Backfilled from gaps table (feature=broadcast-notifications, gap_status=closed, target_state=CLOSED).
+    target: mcpkit#146
+  1721:
+    bucket: real-gap
+    rationale: Backfilled from gaps table (feature=rfc9207-issuer-validation, gap_status=open, target_state=OPEN).
+    target: mcpkit#139
+  1763:
+    bucket: defer-spec-flux
+    rationale: Backfilled from gaps table (feature=mcp-interceptors, gap_status=deferred).
+  1766:
+    bucket: defer-spec-flux
+    rationale: Backfilled from gaps table (feature=digest-pinned-versioning, gap_status=deferred).
+  2309:
+    bucket: not-applicable
+    rationale: Backfilled from gaps table (feature=swift-sdk-tier3, gap_status=not-applicable).
+  2326:
+    bucket: not-applicable
+    rationale: Backfilled from gaps table (feature=swift-sdk-tier1, gap_status=not-applicable).
+  2349:
+    bucket: real-gap
+    rationale: Backfilled from gaps table (feature=scope-accumulation-step-up, gap_status=open, target_state=OPEN).
+    target: mcpkit#138
