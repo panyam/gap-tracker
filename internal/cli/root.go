@@ -63,6 +63,8 @@ for the full flow model and developer entry points.`,
 	cmd.AddCommand(newVersionCmd())
 	cmd.AddCommand(newTriageCmd())
 	cmd.AddCommand(newShowCmd())
+	cmd.AddCommand(newSyncCmd())
+	cmd.AddCommand(newSyncAllCmd())
 
 	return cmd
 }

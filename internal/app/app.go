@@ -10,6 +10,7 @@ import (
 	"os"
 
 	"github.com/panyam/gap-tracker/internal/config"
+	"github.com/panyam/gap-tracker/internal/github"
 	"github.com/panyam/gap-tracker/internal/render"
 	"github.com/panyam/gap-tracker/internal/store"
 )
@@ -20,6 +21,7 @@ type App struct {
 	Cfg      *config.Config
 	Store    *store.Store
 	Renderer render.Renderer
+	GitHub   github.Client
 }
 
 // Load resolves the root + project from CLI flags, loads config.json,
@@ -50,6 +52,7 @@ func Load(rootDir, project, outputMode string) (*App, error) {
 		Cfg:      cfg,
 		Store:    s,
 		Renderer: r,
+		GitHub:   github.NewCLIClient(),
 	}, nil
 }
 
