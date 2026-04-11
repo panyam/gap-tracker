@@ -11,6 +11,7 @@ import (
 
 	"github.com/panyam/gap-tracker/internal/app"
 	"github.com/panyam/gap-tracker/internal/config"
+	"github.com/panyam/gap-tracker/internal/render"
 	"github.com/panyam/gap-tracker/internal/store"
 )
 
@@ -114,57 +115,46 @@ Examples:
 			if err != nil {
 				return err
 			}
-			if len(summaries) == 0 {
-				if filter != "" {
-					fmt.Fprintf(os.Stdout, "No issues with notes matching %q.\n", filter)
-				} else {
-					fmt.Fprintln(os.Stdout, "No issues with notes.")
-				}
-				return nil
-			}
-
-			// Display: ref, state, title, latest note summary. We
-			// render directly here instead of going through the
-			// Renderer interface because this is a legacy verb with
-			// a fixed shape — not worth a new view type.
-			target := a.Cfg.TargetRepo
-			fmt.Fprintf(os.Stdout, "Issues with notes")
-			if filter != "" {
-				fmt.Fprintf(os.Stdout, " (filter: %s)", filter)
-			}
-			fmt.Fprintln(os.Stdout)
-			fmt.Fprintln(os.Stdout)
-
-			rows := make([][]string, 0, len(summaries))
-			for _, s := range summaries {
-				var ref string
-				if s.Repo == target {
-					ref = "#" + itoa(s.Number)
-				} else {
-					label := a.Cfg.RepoToSourceLabel(s.Repo)
-					ref = label + ":" + itoa(s.Number)
-				}
-				title := s.Title
-				if len(title) > 60 {
-					title = title[:60]
-				}
-				var summary string
-				if len(s.Notes) > 0 {
-					latest := s.Notes[len(s.Notes)-1].Text
-					if len(latest) > 60 {
-						latest = latest[:60]
-					}
-					if len(s.Notes) > 1 {
-						summary = fmt.Sprintf("(%d) %s", len(s.Notes), latest)
-					} else {
-						summary = latest
-					}
-				}
-				rows = append(rows, []string{ref, s.State, title, summary})
-			}
-			writeTextTable(os.Stdout, []string{"#", "state", "title", "notes"}, rows)
-			return nil
+			view := buildNotesListView(a, summaries, filter)
+			return a.Renderer.RenderNotesList(os.Stdout, view)
 		},
+	}
+}
+
+// buildNotesListView maps store.IssueNoteSummary rows into the
+// render.NotesListView. Stays in cli (not store) because it needs
+// config for label↔repo resolution.
+func buildNotesListView(a *app.App, summaries []store.IssueNoteSummary, filter string) render.NotesListView {
+	target := a.Cfg.TargetRepo
+	items := make([]render.NotesListItem, 0, len(summaries))
+	for _, s := range summaries {
+		var ref string
+		if s.Repo == target {
+			ref = "#" + itoa(s.Number)
+		} else {
+			label := a.Cfg.RepoToSourceLabel(s.Repo)
+			ref = label + ":" + itoa(s.Number)
+		}
+		latest := ""
+		all := make([]string, 0, len(s.Notes))
+		for _, n := range s.Notes {
+			all = append(all, n.Text)
+		}
+		if len(s.Notes) > 0 {
+			latest = s.Notes[len(s.Notes)-1].Text
+		}
+		items = append(items, render.NotesListItem{
+			Ref:    ref,
+			State:  s.State,
+			Title:  s.Title,
+			Latest: latest,
+			Count:  len(s.Notes),
+			Notes:  all,
+		})
+	}
+	return render.NotesListView{
+		Filter: filter,
+		Issues: items,
 	}
 }
 

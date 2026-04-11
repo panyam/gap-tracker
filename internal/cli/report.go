@@ -10,6 +10,7 @@ import (
 
 	"github.com/panyam/gap-tracker/internal/app"
 	"github.com/panyam/gap-tracker/internal/model"
+	"github.com/panyam/gap-tracker/internal/render"
 )
 
 // newReportCmd is `gapt report [--by-priority]`.
@@ -30,122 +31,11 @@ func newReportCmd() *cobra.Command {
 			}
 			defer a.Close()
 
-			fmt.Fprintf(os.Stdout, "\nGap Report: %s  (target: %s)\n\n",
-				a.Cfg.Project, a.Cfg.TargetRepo)
-
-			// Build evidence → gap lookup once.
-			gaps, err := a.Store.AllGaps()
+			view, err := buildReportView(a, byPriority)
 			if err != nil {
 				return err
 			}
-			evidenceToGap := map[string]*model.Gap{}
-			for i := range gaps {
-				g := &gaps[i]
-				for _, rawRef := range strings.Split(g.SourceEvidence, ",") {
-					ref := strings.TrimSpace(rawRef)
-					if ref != "" {
-						evidenceToGap[ref] = g
-					}
-				}
-			}
-
-			ourIssueCache := map[int]*model.Issue{}
-			lookupOurIssue := func(num int) *model.Issue {
-				if num <= 0 {
-					return nil
-				}
-				if cached, ok := ourIssueCache[num]; ok {
-					return cached
-				}
-				issue, _ := a.Store.GetIssue(a.Cfg.TargetRepo, num)
-				ourIssueCache[num] = issue
-				return issue
-			}
-
-			// Per-source sections.
-			for _, src := range a.Cfg.Sources {
-				srcIssues, err := a.Store.OpenIssuesByRepoFull(src.Repo)
-				if err != nil {
-					return err
-				}
-
-				type trackedRow struct {
-					SrcIssue model.Issue
-					Gap      *model.Gap
-				}
-				var tracked []trackedRow
-				var untracked []model.Issue
-				for _, si := range srcIssues {
-					ref := src.Label + ":" + itoa(si.Number)
-					if gap := evidenceToGap[ref]; gap != nil {
-						tracked = append(tracked, trackedRow{SrcIssue: si, Gap: gap})
-					} else {
-						untracked = append(untracked, si)
-					}
-				}
-
-				if byPriority {
-					sort.SliceStable(untracked, func(i, j int) bool {
-						pi := labelPriorityScore(untracked[i].Labels)
-						pj := labelPriorityScore(untracked[j].Labels)
-						if pi != pj {
-							return pi < pj
-						}
-						return untracked[i].Number > untracked[j].Number
-					})
-				}
-
-				fmt.Fprintf(os.Stdout, "=== %s (%s) — %d open ===\n\n", src.Label, src.Repo, len(srcIssues))
-
-				if len(tracked) > 0 {
-					fmt.Fprintf(os.Stdout, "Tracked (%d)\n", len(tracked))
-					rows := make([][]string, 0, len(tracked))
-					for _, r := range tracked {
-						badge := statusBadge(r.Gap.Status)
-						srcRef := fmt.Sprintf("%s#%d", src.Label, r.SrcIssue.Number)
-						oursNum := 0
-						if r.Gap.TargetIssue != nil {
-							oursNum = *r.Gap.TargetIssue
-						}
-						oursRef := "—"
-						if oursNum > 0 {
-							oursRef = fmt.Sprintf("#%d", oursNum)
-						}
-						oursTitle := ""
-						if oi := lookupOurIssue(oursNum); oi != nil {
-							oursTitle = truncate(oi.Title, 60)
-						}
-						rows = append(rows, []string{
-							badge, srcRef, truncate(r.SrcIssue.Title, 60), oursRef, oursTitle,
-						})
-					}
-					writeTextTable(os.Stdout,
-						[]string{"", "source", "source title", "ours", "our title"}, rows)
-					fmt.Fprintln(os.Stdout)
-				}
-
-				if len(untracked) > 0 {
-					fmt.Fprintf(os.Stdout, "Untracked (%d)\n", len(untracked))
-					rows := make([][]string, 0, len(untracked))
-					for _, si := range untracked {
-						rows = append(rows, []string{
-							fmt.Sprintf("%s#%d", src.Label, si.Number),
-							truncate(si.Title, 70),
-							truncate(si.Labels, 30),
-						})
-					}
-					writeTextTable(os.Stdout,
-						[]string{"ref", "title", "labels"}, rows)
-					fmt.Fprintln(os.Stdout)
-				}
-			}
-
-			// All-tracked-gaps summary.
-			if len(gaps) > 0 {
-				printGapsSummary(os.Stdout, gaps, lookupOurIssue)
-			}
-
-			return nil
+			return a.Renderer.RenderReport(os.Stdout, view)
 		},
 	}
 	cmd.Flags().BoolVar(&byPriority, "by-priority", false,
@@ -153,10 +43,123 @@ func newReportCmd() *cobra.Command {
 	return cmd
 }
 
-// printGapsSummary emits the three grouped tables (open / deferred /
-// closed) below the per-source sections. Called only if there are
-// gap rows at all.
-func printGapsSummary(w *os.File, gaps []model.Gap, lookupOurIssue func(int) *model.Issue) {
+// buildReportView pulls every gap + source issue, groups them, and
+// packs the result into a render.ReportView. Formatting decisions
+// live in the renderer; this function just shapes data.
+func buildReportView(a *app.App, byPriority bool) (render.ReportView, error) {
+	gaps, err := a.Store.AllGaps()
+	if err != nil {
+		return render.ReportView{}, err
+	}
+	evidenceToGap := map[string]*model.Gap{}
+	for i := range gaps {
+		g := &gaps[i]
+		for _, rawRef := range strings.Split(g.SourceEvidence, ",") {
+			ref := strings.TrimSpace(rawRef)
+			if ref != "" {
+				evidenceToGap[ref] = g
+			}
+		}
+	}
+
+	ourIssueCache := map[int]*model.Issue{}
+	lookupOurIssue := func(num int) *model.Issue {
+		if num <= 0 {
+			return nil
+		}
+		if cached, ok := ourIssueCache[num]; ok {
+			return cached
+		}
+		issue, _ := a.Store.GetIssue(a.Cfg.TargetRepo, num)
+		ourIssueCache[num] = issue
+		return issue
+	}
+
+	view := render.ReportView{
+		Project:    a.Cfg.Project,
+		TargetRepo: a.Cfg.TargetRepo,
+	}
+
+	for _, src := range a.Cfg.Sources {
+		srcIssues, err := a.Store.OpenIssuesByRepoFull(src.Repo)
+		if err != nil {
+			return render.ReportView{}, err
+		}
+
+		section := render.ReportSource{
+			Label:     src.Label,
+			Repo:      src.Repo,
+			OpenCount: len(srcIssues),
+		}
+
+		type trackedPair struct {
+			SrcIssue model.Issue
+			Gap      *model.Gap
+		}
+		var trackedPairs []trackedPair
+		var untracked []model.Issue
+		for _, si := range srcIssues {
+			ref := src.Label + ":" + itoa(si.Number)
+			if gap := evidenceToGap[ref]; gap != nil {
+				trackedPairs = append(trackedPairs, trackedPair{SrcIssue: si, Gap: gap})
+			} else {
+				untracked = append(untracked, si)
+			}
+		}
+
+		if byPriority {
+			sort.SliceStable(untracked, func(i, j int) bool {
+				pi := labelPriorityScore(untracked[i].Labels)
+				pj := labelPriorityScore(untracked[j].Labels)
+				if pi != pj {
+					return pi < pj
+				}
+				return untracked[i].Number > untracked[j].Number
+			})
+		}
+
+		for _, r := range trackedPairs {
+			oursNum := 0
+			if r.Gap.TargetIssue != nil {
+				oursNum = *r.Gap.TargetIssue
+			}
+			oursRef := ""
+			oursTitle := ""
+			if oursNum > 0 {
+				oursRef = fmt.Sprintf("#%d", oursNum)
+				if oi := lookupOurIssue(oursNum); oi != nil {
+					oursTitle = oi.Title
+				}
+			}
+			section.Tracked = append(section.Tracked, render.ReportTracked{
+				Badge:     statusBadge(r.Gap.Status),
+				SrcRef:    fmt.Sprintf("%s#%d", src.Label, r.SrcIssue.Number),
+				SrcTitle:  r.SrcIssue.Title,
+				OursRef:   oursRef,
+				OursTitle: oursTitle,
+				Status:    r.Gap.Status,
+			})
+		}
+		for _, si := range untracked {
+			section.Untracked = append(section.Untracked, render.ReportUntracked{
+				Ref:    fmt.Sprintf("%s#%d", src.Label, si.Number),
+				Title:  si.Title,
+				Labels: si.Labels,
+			})
+		}
+
+		view.Sources = append(view.Sources, section)
+	}
+
+	// Gaps summary.
+	if len(gaps) > 0 {
+		view.Summary = buildGapsSummary(gaps, lookupOurIssue)
+	}
+	return view, nil
+}
+
+// buildGapsSummary groups gaps by status bucket and sorts each group.
+func buildGapsSummary(gaps []model.Gap, lookupOurIssue func(int) *model.Issue) *render.ReportSummary {
 	var open, deferred, closed []model.Gap
 	for _, g := range gaps {
 		switch g.Status {
@@ -169,7 +172,6 @@ func printGapsSummary(w *os.File, gaps []model.Gap, lookupOurIssue func(int) *mo
 		}
 	}
 
-	// Sort key matches Python: priority tier, then status sort, then feature.
 	sortGaps := func(xs []model.Gap) {
 		sort.SliceStable(xs, func(i, j int) bool {
 			pi := priorityTier(xs[i].Priority)
@@ -185,89 +187,45 @@ func printGapsSummary(w *os.File, gaps []model.Gap, lookupOurIssue func(int) *mo
 			return xs[i].Feature < xs[j].Feature
 		})
 	}
+	sortGaps(open)
+	sortGaps(deferred)
+	sortGaps(closed)
 
-	if len(open) > 0 {
-		fmt.Fprintln(w)
-		fmt.Fprintln(w, "=== All Tracked Gaps ===")
-		fmt.Fprintln(w)
-		fmt.Fprintf(w, "Open gaps (%d)\n", len(open))
-		sortGaps(open)
-		writeTextTable(w,
-			[]string{"", "evidence", "ours", "title", "pri"},
-			gapRows(open, lookupOurIssue))
-		fmt.Fprintln(w)
-	}
-
-	if len(deferred) > 0 {
-		fmt.Fprintf(w, "Deferred (%d)\n", len(deferred))
-		sortGaps(deferred)
-		writeTextTable(w,
-			[]string{"", "evidence", "feature"},
-			deferredRows(deferred))
-		fmt.Fprintln(w)
-	}
-
-	if len(closed) > 0 {
-		fmt.Fprintf(w, "Closed / not-applicable (%d)\n", len(closed))
-		sortGaps(closed)
-		writeTextTable(w,
-			[]string{"", "evidence", "ours", "title"},
-			closedRows(closed, lookupOurIssue))
-		fmt.Fprintln(w)
-	}
-}
-
-func gapRows(gs []model.Gap, lookup func(int) *model.Issue) [][]string {
-	rows := make([][]string, 0, len(gs))
-	for _, g := range gs {
-		badge := statusBadge(g.Status)
+	toRow := func(g model.Gap) render.ReportGapRow {
 		oursNum := 0
 		if g.TargetIssue != nil {
 			oursNum = *g.TargetIssue
 		}
-		oursRef := "—"
-		title := ""
+		oursRef := ""
+		oursTitle := ""
 		if oursNum > 0 {
 			oursRef = fmt.Sprintf("#%d", oursNum)
-			if oi := lookup(oursNum); oi != nil {
-				title = truncate(oi.Title, 55)
+			if oi := lookupOurIssue(oursNum); oi != nil {
+				oursTitle = oi.Title
 			}
 		}
-		rows = append(rows, []string{
-			badge, g.SourceEvidence, oursRef, title, g.Priority,
-		})
-	}
-	return rows
-}
-
-func deferredRows(gs []model.Gap) [][]string {
-	rows := make([][]string, 0, len(gs))
-	for _, g := range gs {
-		rows = append(rows, []string{statusBadge(g.Status), g.SourceEvidence, g.Feature})
-	}
-	return rows
-}
-
-func closedRows(gs []model.Gap, lookup func(int) *model.Issue) [][]string {
-	rows := make([][]string, 0, len(gs))
-	for _, g := range gs {
-		oursNum := 0
-		if g.TargetIssue != nil {
-			oursNum = *g.TargetIssue
+		return render.ReportGapRow{
+			Badge:     statusBadge(g.Status),
+			Feature:   g.Feature,
+			Evidence:  g.SourceEvidence,
+			OursRef:   oursRef,
+			OursTitle: oursTitle,
+			Priority:  g.Priority,
+			Status:    g.Status,
 		}
-		oursRef := "—"
-		title := ""
-		if oursNum > 0 {
-			oursRef = fmt.Sprintf("#%d", oursNum)
-			if oi := lookup(oursNum); oi != nil {
-				title = truncate(oi.Title, 55)
-			}
-		}
-		rows = append(rows, []string{
-			statusBadge(g.Status), g.SourceEvidence, oursRef, title,
-		})
 	}
-	return rows
+
+	sum := &render.ReportSummary{}
+	for _, g := range open {
+		sum.Open = append(sum.Open, toRow(g))
+	}
+	for _, g := range deferred {
+		sum.Deferred = append(sum.Deferred, toRow(g))
+	}
+	for _, g := range closed {
+		sum.Closed = append(sum.Closed, toRow(g))
+	}
+	return sum
 }
 
 // --- status + priority helpers (ported from Python) ----------------------

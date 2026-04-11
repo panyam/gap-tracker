@@ -149,6 +149,28 @@ func (p prettyRenderer) RenderList(w io.Writer, l TriageList) error {
 	return nil
 }
 
+// Legacy verb renderers. For v1 we delegate to the text renderer so
+// -o pretty on a legacy verb does not error out but also doesn't add
+// cosmetic lipgloss styling. Real lipgloss polish for these views is
+// a future enhancement — they're low-frequency verbs and the text
+// layout already reads fine on a terminal.
+
+func (p prettyRenderer) RenderNotesList(w io.Writer, v NotesListView) error {
+	return textRenderer{}.RenderNotesList(w, v)
+}
+
+func (p prettyRenderer) RenderCrossref(w io.Writer, r CrossrefReport) error {
+	return textRenderer{}.RenderCrossref(w, r)
+}
+
+func (p prettyRenderer) RenderReconcile(w io.Writer, r ReconcileReport) error {
+	return textRenderer{}.RenderReconcile(w, r)
+}
+
+func (p prettyRenderer) RenderReport(w io.Writer, r ReportView) error {
+	return textRenderer{}.RenderReport(w, r)
+}
+
 // RenderIssue uses titled sections rather than one monolithic table,
 // because an issue view mixes tabular triage data with free-form notes.
 func (p prettyRenderer) RenderIssue(w io.Writer, v IssueView) error {

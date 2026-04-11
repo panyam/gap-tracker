@@ -22,3 +22,19 @@ func (yamlRenderer) RenderList(w io.Writer, l TriageList) error {
 func (yamlRenderer) RenderIssue(w io.Writer, v IssueView) error {
 	return yaml.NewEncoder(w).Encode(v)
 }
+
+func (yamlRenderer) RenderNotesList(w io.Writer, v NotesListView) error {
+	return yaml.NewEncoder(w).Encode(v)
+}
+
+func (yamlRenderer) RenderCrossref(w io.Writer, r CrossrefReport) error {
+	return yaml.NewEncoder(w).Encode(r)
+}
+
+func (yamlRenderer) RenderReconcile(w io.Writer, r ReconcileReport) error {
+	return yaml.NewEncoder(w).Encode(r)
+}
+
+func (yamlRenderer) RenderReport(w io.Writer, r ReportView) error {
+	return yaml.NewEncoder(w).Encode(r)
+}

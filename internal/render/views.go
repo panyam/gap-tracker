@@ -112,3 +112,123 @@ type LinkedGapBlock struct {
 	TargetTitle    string
 	GapStatus      string // open / deferred / not-applicable / closed / in-progress
 }
+
+// --- legacy verb views ---------------------------------------------------
+//
+// These views back the four legacy verbs (notes/crossref/reconcile/report)
+// after their M7 rewiring. They're shaped flat on purpose so the yaml
+// renderer is a one-liner per method — no nested render paths needed.
+
+// NotesListView backs `gapt notes [filter]`.
+type NotesListView struct {
+	Filter string          `yaml:"filter,omitempty"`
+	Issues []NotesListItem `yaml:"issues"`
+}
+
+type NotesListItem struct {
+	Ref    string   `yaml:"ref"`    // "#42" for target, "label:42" for sources
+	State  string   `yaml:"state"`  // "OPEN" / "CLOSED"
+	Title  string   `yaml:"title"`
+	Latest string   `yaml:"latest"` // most recent note text (truncated in text mode)
+	Count  int      `yaml:"count"`  // total notes on the issue
+	Notes  []string `yaml:"notes,omitempty"` // all note text, yaml mode only
+}
+
+// CrossrefReport backs `gapt crossref`. One section per source.
+type CrossrefReport struct {
+	Project  string            `yaml:"project"`
+	Target   string            `yaml:"target"`
+	Sources  []CrossrefSection `yaml:"sources"`
+}
+
+type CrossrefSection struct {
+	Label     string           `yaml:"label"`
+	Repo      string           `yaml:"repo"`
+	OpenCount int              `yaml:"open_count"`
+	Matched   []CrossrefMatch  `yaml:"matched"`
+	Unmatched []CrossrefMiss   `yaml:"unmatched"`
+}
+
+type CrossrefMatch struct {
+	SrcRef   string `yaml:"src_ref"`   // "label#N"
+	SrcTitle string `yaml:"src_title"`
+	TgtRef   string `yaml:"tgt_ref"`   // "#N"
+	TgtTitle string `yaml:"tgt_title"`
+	Score    int    `yaml:"score"`
+}
+
+type CrossrefMiss struct {
+	Ref   string `yaml:"ref"`   // "label#N"
+	Title string `yaml:"title"`
+}
+
+// ReconcileReport backs `gapt reconcile`.
+type ReconcileReport struct {
+	TargetRepo     string          `yaml:"target_repo"`
+	SyncedCount    int             `yaml:"synced_count"`
+	Closed         []ReconcileRow  `yaml:"closed"`
+	UnchangedCount int             `yaml:"unchanged_count"`
+	Missing        []ReconcileMiss `yaml:"missing"`
+}
+
+type ReconcileRow struct {
+	Feature  string `yaml:"feature"`
+	Number   int    `yaml:"number"`
+	OldState string `yaml:"old_state"`
+	Title    string `yaml:"title,omitempty"`
+}
+
+type ReconcileMiss struct {
+	Feature string `yaml:"feature"`
+	Number  int    `yaml:"number"`
+}
+
+// ReportView backs `gapt report [--by-priority]`. Nested per-source
+// sections + gaps-summary groups. Each source section has tracked +
+// untracked tables. The summary has three groups keyed by bucket
+// semantics (open / deferred / closed-or-na).
+type ReportView struct {
+	Project    string          `yaml:"project"`
+	TargetRepo string          `yaml:"target_repo"`
+	Sources    []ReportSource  `yaml:"sources"`
+	Summary    *ReportSummary  `yaml:"summary,omitempty"`
+}
+
+type ReportSource struct {
+	Label     string            `yaml:"label"`
+	Repo      string            `yaml:"repo"`
+	OpenCount int               `yaml:"open_count"`
+	Tracked   []ReportTracked   `yaml:"tracked"`
+	Untracked []ReportUntracked `yaml:"untracked"`
+}
+
+type ReportTracked struct {
+	Badge     string `yaml:"badge"`      // "[x]" / "[ ]" / "[>]" / ...
+	SrcRef    string `yaml:"src_ref"`    // "label#N"
+	SrcTitle  string `yaml:"src_title"`
+	OursRef   string `yaml:"ours_ref"`   // "#N" or ""
+	OursTitle string `yaml:"ours_title"`
+	Status    string `yaml:"status"`     // raw status for yaml consumers
+}
+
+type ReportUntracked struct {
+	Ref    string `yaml:"ref"`    // "label#N"
+	Title  string `yaml:"title"`
+	Labels string `yaml:"labels,omitempty"`
+}
+
+type ReportSummary struct {
+	Open     []ReportGapRow `yaml:"open,omitempty"`
+	Deferred []ReportGapRow `yaml:"deferred,omitempty"`
+	Closed   []ReportGapRow `yaml:"closed,omitempty"`
+}
+
+type ReportGapRow struct {
+	Badge     string `yaml:"badge"`
+	Feature   string `yaml:"feature,omitempty"` // populated for deferred; "evidence" field used elsewhere
+	Evidence  string `yaml:"evidence,omitempty"`
+	OursRef   string `yaml:"ours_ref,omitempty"`
+	OursTitle string `yaml:"ours_title,omitempty"`
+	Priority  string `yaml:"priority,omitempty"`
+	Status    string `yaml:"status"`
+}

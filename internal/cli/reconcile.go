@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"time"
@@ -9,6 +10,7 @@ import (
 
 	"github.com/panyam/gap-tracker/internal/app"
 	"github.com/panyam/gap-tracker/internal/github"
+	"github.com/panyam/gap-tracker/internal/render"
 	"github.com/panyam/gap-tracker/internal/store"
 )
 
@@ -41,102 +43,83 @@ workflow.`,
 			}
 			defer a.Close()
 
-			// Step 1: sync the target repo. High count (1000) because
-			// we want a clean snapshot — matches Python.
-			fmt.Fprintf(os.Stdout, "=== Syncing target repo: %s ===\n", a.Cfg.TargetRepo)
-			issues, err := a.GitHub.FetchIssues(cmd.Context(), a.Cfg.TargetRepo, github.FetchOptions{
-				Offset: 0,
-				Count:  1000,
-			})
+			report, err := runReconcile(cmd.Context(), a)
 			if err != nil {
 				return err
 			}
-			if _, err := a.Store.UpsertIssues(a.Cfg.TargetRepo, issues); err != nil {
-				return err
-			}
-			if err := a.Store.LogSync(a.Cfg.TargetRepo, len(issues), 0, 1000); err != nil {
-				return err
-			}
-			fmt.Fprintf(os.Stdout, "  fetched %d issues\n\n", len(issues))
-
-			// Step 2: find candidate gaps.
-			candidates, err := a.Store.ListReconcileCandidates(a.Cfg.TargetRepo)
-			if err != nil {
-				return err
-			}
-			if len(candidates) == 0 {
-				fmt.Fprintln(os.Stdout, "No open/in-progress gaps with linked issues.")
-				return nil
-			}
-
-			// Step 3: classify each candidate.
-			type closedRow struct {
-				Feature  string
-				Number   int
-				OldState string
-				Title    string
-			}
-			var changed []closedRow
-			var unchanged int
-			type missingRow struct {
-				Feature string
-				Number  int
-			}
-			var missing []missingRow
-
-			today := time.Now().UTC().Format("2006-01-02")
-			nowUTC := time.Now().UTC().Format("2006-01-02T15:04:05Z")
-
-			for _, c := range candidates {
-				if c.IssueState == nil {
-					missing = append(missing, missingRow{c.Feature, c.TargetIssue})
-					continue
-				}
-				if *c.IssueState != "CLOSED" {
-					unchanged++
-					continue
-				}
-
-				note := store.Note{
-					Text: fmt.Sprintf("[reconcile] #%d closed — gap resolved (%s)", c.TargetIssue, today),
-					At:   nowUTC,
-				}
-				if err := a.Store.CloseGapWithNote(c.Feature, note); err != nil {
-					return err
-				}
-				title := ""
-				if c.IssueTitle != nil {
-					title = *c.IssueTitle
-				}
-				changed = append(changed, closedRow{c.Feature, c.TargetIssue, c.Status, title})
-			}
-
-			// Step 4: report.
-			if len(changed) > 0 {
-				fmt.Fprintf(os.Stdout, "Closed (%d)\n", len(changed))
-				rows := make([][]string, 0, len(changed))
-				for _, r := range changed {
-					rows = append(rows, []string{
-						r.Feature, fmt.Sprintf("#%d", r.Number), r.OldState, truncate(r.Title, 60),
-					})
-				}
-				writeTextTable(os.Stdout, []string{"feature", "issue", "was", "issue title"}, rows)
-				fmt.Fprintln(os.Stdout)
-			}
-			if unchanged > 0 {
-				fmt.Fprintf(os.Stdout, "Unchanged: %d gaps still open\n", unchanged)
-			}
-			if len(missing) > 0 {
-				fmt.Fprintf(os.Stdout, "Warning: %d gaps reference issues not found in DB:\n", len(missing))
-				for _, m := range missing {
-					fmt.Fprintf(os.Stdout, "  %s → #%d\n", m.Feature, m.Number)
-				}
-			}
-			fmt.Fprintf(os.Stdout, "\nReconciled: %d closed, %d unchanged, %d missing\n",
-				len(changed), unchanged, len(missing))
-			return nil
+			return a.Renderer.RenderReconcile(os.Stdout, report)
 		},
 	}
+}
+
+// runReconcile performs the sync + gap-close logic and returns the
+// report for the renderer. Side effects: writes to `issues` and
+// `gaps` tables, appends to sync_log. Does not print.
+func runReconcile(ctx context.Context, a *app.App) (render.ReconcileReport, error) {
+	// Step 1: sync the target repo at high count.
+	issues, err := a.GitHub.FetchIssues(ctx, a.Cfg.TargetRepo, github.FetchOptions{
+		Offset: 0,
+		Count:  1000,
+	})
+	if err != nil {
+		return render.ReconcileReport{}, err
+	}
+	if _, err := a.Store.UpsertIssues(a.Cfg.TargetRepo, issues); err != nil {
+		return render.ReconcileReport{}, err
+	}
+	if err := a.Store.LogSync(a.Cfg.TargetRepo, len(issues), 0, 1000); err != nil {
+		return render.ReconcileReport{}, err
+	}
+
+	report := render.ReconcileReport{
+		TargetRepo:  a.Cfg.TargetRepo,
+		SyncedCount: len(issues),
+	}
+
+	// Step 2: find candidate gaps.
+	candidates, err := a.Store.ListReconcileCandidates(a.Cfg.TargetRepo)
+	if err != nil {
+		return render.ReconcileReport{}, err
+	}
+	if len(candidates) == 0 {
+		return report, nil
+	}
+
+	// Step 3: walk candidates and classify.
+	today := time.Now().UTC().Format("2006-01-02")
+	nowUTC := time.Now().UTC().Format("2006-01-02T15:04:05Z")
+
+	for _, c := range candidates {
+		if c.IssueState == nil {
+			report.Missing = append(report.Missing, render.ReconcileMiss{
+				Feature: c.Feature, Number: c.TargetIssue,
+			})
+			continue
+		}
+		if *c.IssueState != "CLOSED" {
+			report.UnchangedCount++
+			continue
+		}
+
+		note := store.Note{
+			Text: fmt.Sprintf("[reconcile] #%d closed — gap resolved (%s)", c.TargetIssue, today),
+			At:   nowUTC,
+		}
+		if err := a.Store.CloseGapWithNote(c.Feature, note); err != nil {
+			return render.ReconcileReport{}, err
+		}
+		title := ""
+		if c.IssueTitle != nil {
+			title = *c.IssueTitle
+		}
+		report.Closed = append(report.Closed, render.ReconcileRow{
+			Feature:  c.Feature,
+			Number:   c.TargetIssue,
+			OldState: c.Status,
+			Title:    title,
+		})
+	}
+	return report, nil
 }
 
 // truncate is a small helper used by reconcile and (eventually) other

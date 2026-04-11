@@ -53,9 +53,17 @@ func ParseMode(s string) (Mode, error) {
 // per command, so adding a new command that produces an existing view
 // doesn't need a new renderer method.
 type Renderer interface {
+	// Primary verb views (M2).
 	RenderStatus(w io.Writer, s StatusReport) error
 	RenderList(w io.Writer, l TriageList) error
 	RenderIssue(w io.Writer, v IssueView) error
+
+	// Legacy verb views (M7 — rewired from plain-text-only so every
+	// command respects --output uniformly).
+	RenderNotesList(w io.Writer, v NotesListView) error
+	RenderCrossref(w io.Writer, r CrossrefReport) error
+	RenderReconcile(w io.Writer, r ReconcileReport) error
+	RenderReport(w io.Writer, r ReportView) error
 }
 
 // ForMode returns a Renderer for the given mode, resolving "auto" to

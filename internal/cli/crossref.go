@@ -1,7 +1,6 @@
 package cli
 
 import (
-	"fmt"
 	"os"
 	"regexp"
 	"sort"
@@ -10,6 +9,7 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/panyam/gap-tracker/internal/app"
+	"github.com/panyam/gap-tracker/internal/render"
 	"github.com/panyam/gap-tracker/internal/store"
 )
 
@@ -34,85 +34,73 @@ func newCrossrefCmd() *cobra.Command {
 			}
 			defer a.Close()
 
-			targetIssues, err := a.Store.AllIssuesByRepo(a.Cfg.TargetRepo)
+			report, err := buildCrossrefReport(a)
 			if err != nil {
 				return err
 			}
-
-			fmt.Fprintf(os.Stdout, "=== Cross-reference: %s ===\n\n", a.Cfg.Project)
-
-			for _, src := range a.Cfg.Sources {
-				srcIssues, err := a.Store.OpenIssuesByRepoWithBody(src.Repo)
-				if err != nil {
-					return err
-				}
-				fmt.Fprintf(os.Stdout, "--- %s (%d open) → %s ---\n",
-					src.Label, len(srcIssues), a.Cfg.TargetRepo)
-
-				type match struct {
-					SrcNum   int
-					SrcTitle string
-					TgtNum   int
-					TgtTitle string
-					Score    int
-				}
-				var matched []match
-				var unmatched []store.IssueWithBody
-
-				for _, si := range srcIssues {
-					bestScore := 0
-					var best store.IssueWithBody
-					for _, ti := range targetIssues {
-						score := matchScore(si.Title, si.Body, ti.Title, ti.Body)
-						if score > bestScore {
-							bestScore = score
-							best = ti
-						}
-					}
-					if bestScore >= 15 {
-						matched = append(matched, match{
-							SrcNum:   si.Number,
-							SrcTitle: si.Title,
-							TgtNum:   best.Number,
-							TgtTitle: best.Title,
-							Score:    bestScore,
-						})
-					} else {
-						unmatched = append(unmatched, si)
-					}
-				}
-
-				sort.Slice(matched, func(i, j int) bool {
-					return matched[i].Score > matched[j].Score
-				})
-
-				for _, m := range matched {
-					fmt.Fprintf(os.Stdout, "  %s#%d → #%d (score=%d)\n",
-						src.Label, m.SrcNum, m.TgtNum, m.Score)
-					fmt.Fprintf(os.Stdout, "    src: %s\n", truncate(m.SrcTitle, 70))
-					fmt.Fprintf(os.Stdout, "    tgt: %s\n", truncate(m.TgtTitle, 70))
-				}
-
-				if len(unmatched) > 0 {
-					fmt.Fprintf(os.Stdout, "\n  Unmatched (%d):\n", len(unmatched))
-					shown := unmatched
-					if len(shown) > 20 {
-						shown = shown[:20]
-					}
-					for _, si := range shown {
-						fmt.Fprintf(os.Stdout, "    %s#%d: %s\n",
-							src.Label, si.Number, truncate(si.Title, 70))
-					}
-					if len(unmatched) > 20 {
-						fmt.Fprintf(os.Stdout, "    ... and %d more\n", len(unmatched)-20)
-					}
-				}
-				fmt.Fprintln(os.Stdout)
-			}
-
-			return nil
+			return a.Renderer.RenderCrossref(os.Stdout, report)
 		},
 	}
+}
+
+// buildCrossrefReport runs the full keyword-match sweep and packs the
+// result into a render.CrossrefReport. All formatting decisions stay
+// in the renderer; this function is pure data.
+func buildCrossrefReport(a *app.App) (render.CrossrefReport, error) {
+	targetIssues, err := a.Store.AllIssuesByRepo(a.Cfg.TargetRepo)
+	if err != nil {
+		return render.CrossrefReport{}, err
+	}
+
+	report := render.CrossrefReport{
+		Project: a.Cfg.Project,
+		Target:  a.Cfg.TargetRepo,
+	}
+	for _, src := range a.Cfg.Sources {
+		srcIssues, err := a.Store.OpenIssuesByRepoWithBody(src.Repo)
+		if err != nil {
+			return render.CrossrefReport{}, err
+		}
+
+		section := render.CrossrefSection{
+			Label:     src.Label,
+			Repo:      src.Repo,
+			OpenCount: len(srcIssues),
+		}
+
+		for _, si := range srcIssues {
+			bestScore := 0
+			var best store.IssueWithBody
+			for _, ti := range targetIssues {
+				score := matchScore(si.Title, si.Body, ti.Title, ti.Body)
+				if score > bestScore {
+					bestScore = score
+					best = ti
+				}
+			}
+			if bestScore >= 15 {
+				section.Matched = append(section.Matched, render.CrossrefMatch{
+					SrcRef:   src.Label + "#" + itoa(si.Number),
+					SrcTitle: si.Title,
+					TgtRef:   "#" + itoa(best.Number),
+					TgtTitle: best.Title,
+					Score:    bestScore,
+				})
+			} else {
+				section.Unmatched = append(section.Unmatched, render.CrossrefMiss{
+					Ref:   src.Label + "#" + itoa(si.Number),
+					Title: si.Title,
+				})
+			}
+		}
+
+		sort.Slice(section.Matched, func(i, j int) bool {
+			return section.Matched[i].Score > section.Matched[j].Score
+		})
+
+		report.Sources = append(report.Sources, section)
+	}
+	return report, nil
 }
 
 // crossrefStopwords is the small common-word exclusion set from

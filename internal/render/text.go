@@ -280,3 +280,180 @@ func runeLen(s string) int {
 	}
 	return n
 }
+
+// --- legacy verb renderers (text) ----------------------------------------
+
+// RenderNotesList writes the plain-text view behind `gapt notes`.
+func (textRenderer) RenderNotesList(w io.Writer, v NotesListView) error {
+	if len(v.Issues) == 0 {
+		if v.Filter != "" {
+			fmt.Fprintf(w, "No issues with notes matching %q.\n", v.Filter)
+		} else {
+			fmt.Fprintln(w, "No issues with notes.")
+		}
+		return nil
+	}
+	if v.Filter != "" {
+		fmt.Fprintf(w, "Issues with notes (filter: %s)\n\n", v.Filter)
+	} else {
+		fmt.Fprintln(w, "Issues with notes")
+		fmt.Fprintln(w)
+	}
+	rows := make([][]string, 0, len(v.Issues))
+	for _, it := range v.Issues {
+		latest := truncate(it.Latest, 60)
+		if it.Count > 1 {
+			latest = fmt.Sprintf("(%d) %s", it.Count, latest)
+		}
+		rows = append(rows, []string{
+			it.Ref,
+			it.State,
+			truncate(it.Title, 60),
+			latest,
+		})
+	}
+	writeTable(w, []string{"ref", "state", "title", "notes"}, rows)
+	return nil
+}
+
+// RenderCrossref writes the plain-text view behind `gapt crossref`.
+func (textRenderer) RenderCrossref(w io.Writer, r CrossrefReport) error {
+	fmt.Fprintf(w, "=== Cross-reference: %s ===\n\n", r.Project)
+	for _, sec := range r.Sources {
+		fmt.Fprintf(w, "--- %s (%d open) → %s ---\n", sec.Label, sec.OpenCount, r.Target)
+		for _, m := range sec.Matched {
+			fmt.Fprintf(w, "  %s → %s (score=%d)\n", m.SrcRef, m.TgtRef, m.Score)
+			fmt.Fprintf(w, "    src: %s\n", truncate(m.SrcTitle, 70))
+			fmt.Fprintf(w, "    tgt: %s\n", truncate(m.TgtTitle, 70))
+		}
+		if len(sec.Unmatched) > 0 {
+			fmt.Fprintf(w, "\n  Unmatched (%d):\n", len(sec.Unmatched))
+			shown := sec.Unmatched
+			if len(shown) > 20 {
+				shown = shown[:20]
+			}
+			for _, u := range shown {
+				fmt.Fprintf(w, "    %s: %s\n", u.Ref, truncate(u.Title, 70))
+			}
+			if len(sec.Unmatched) > 20 {
+				fmt.Fprintf(w, "    ... and %d more\n", len(sec.Unmatched)-20)
+			}
+		}
+		fmt.Fprintln(w)
+	}
+	return nil
+}
+
+// RenderReconcile writes the plain-text view behind `gapt reconcile`.
+func (textRenderer) RenderReconcile(w io.Writer, r ReconcileReport) error {
+	fmt.Fprintf(w, "=== Synced target repo: %s (%d issues) ===\n\n", r.TargetRepo, r.SyncedCount)
+	if len(r.Closed) > 0 {
+		fmt.Fprintf(w, "Closed (%d)\n", len(r.Closed))
+		rows := make([][]string, 0, len(r.Closed))
+		for _, c := range r.Closed {
+			rows = append(rows, []string{
+				c.Feature, fmt.Sprintf("#%d", c.Number), c.OldState, truncate(c.Title, 60),
+			})
+		}
+		writeTable(w, []string{"feature", "issue", "was", "issue title"}, rows)
+		fmt.Fprintln(w)
+	}
+	if r.UnchangedCount > 0 {
+		fmt.Fprintf(w, "Unchanged: %d gaps still open\n", r.UnchangedCount)
+	}
+	if len(r.Missing) > 0 {
+		fmt.Fprintf(w, "Warning: %d gaps reference issues not found in DB:\n", len(r.Missing))
+		for _, m := range r.Missing {
+			fmt.Fprintf(w, "  %s → #%d\n", m.Feature, m.Number)
+		}
+	}
+	fmt.Fprintf(w, "\nReconciled: %d closed, %d unchanged, %d missing\n",
+		len(r.Closed), r.UnchangedCount, len(r.Missing))
+	return nil
+}
+
+// RenderReport writes the plain-text view behind `gapt report`. Per
+// source: tracked + untracked tables. Then the three-group gaps summary.
+func (textRenderer) RenderReport(w io.Writer, r ReportView) error {
+	fmt.Fprintf(w, "\nGap Report: %s  (target: %s)\n\n", r.Project, r.TargetRepo)
+
+	for _, src := range r.Sources {
+		fmt.Fprintf(w, "=== %s (%s) — %d open ===\n\n", src.Label, src.Repo, src.OpenCount)
+
+		if len(src.Tracked) > 0 {
+			fmt.Fprintf(w, "Tracked (%d)\n", len(src.Tracked))
+			rows := make([][]string, 0, len(src.Tracked))
+			for _, t := range src.Tracked {
+				rows = append(rows, []string{
+					t.Badge, t.SrcRef, truncate(t.SrcTitle, 60), t.OursRef, truncate(t.OursTitle, 60),
+				})
+			}
+			writeTable(w, []string{"", "source", "source title", "ours", "our title"}, rows)
+			fmt.Fprintln(w)
+		}
+
+		if len(src.Untracked) > 0 {
+			fmt.Fprintf(w, "Untracked (%d)\n", len(src.Untracked))
+			rows := make([][]string, 0, len(src.Untracked))
+			for _, u := range src.Untracked {
+				rows = append(rows, []string{
+					u.Ref, truncate(u.Title, 70), truncate(u.Labels, 30),
+				})
+			}
+			writeTable(w, []string{"ref", "title", "labels"}, rows)
+			fmt.Fprintln(w)
+		}
+	}
+
+	if r.Summary != nil {
+		s := r.Summary
+		if len(s.Open) > 0 || len(s.Deferred) > 0 || len(s.Closed) > 0 {
+			fmt.Fprintln(w, "=== All Tracked Gaps ===")
+			fmt.Fprintln(w)
+		}
+		if len(s.Open) > 0 {
+			fmt.Fprintf(w, "Open gaps (%d)\n", len(s.Open))
+			writeTable(w,
+				[]string{"", "evidence", "ours", "title", "pri"},
+				gapSummaryRows(s.Open))
+			fmt.Fprintln(w)
+		}
+		if len(s.Deferred) > 0 {
+			fmt.Fprintf(w, "Deferred (%d)\n", len(s.Deferred))
+			rows := make([][]string, 0, len(s.Deferred))
+			for _, g := range s.Deferred {
+				rows = append(rows, []string{g.Badge, g.Evidence, g.Feature})
+			}
+			writeTable(w, []string{"", "evidence", "feature"}, rows)
+			fmt.Fprintln(w)
+		}
+		if len(s.Closed) > 0 {
+			fmt.Fprintf(w, "Closed / not-applicable (%d)\n", len(s.Closed))
+			writeTable(w,
+				[]string{"", "evidence", "ours", "title"},
+				closedSummaryRows(s.Closed))
+			fmt.Fprintln(w)
+		}
+	}
+	return nil
+}
+
+func gapSummaryRows(gs []ReportGapRow) [][]string {
+	rows := make([][]string, 0, len(gs))
+	for _, g := range gs {
+		rows = append(rows, []string{
+			g.Badge, g.Evidence, g.OursRef, truncate(g.OursTitle, 55), g.Priority,
+		})
+	}
+	return rows
+}
+
+func closedSummaryRows(gs []ReportGapRow) [][]string {
+	rows := make([][]string, 0, len(gs))
+	for _, g := range gs {
+		rows = append(rows, []string{
+			g.Badge, g.Evidence, g.OursRef, truncate(g.OursTitle, 55),
+		})
+	}
+	return rows
+}
