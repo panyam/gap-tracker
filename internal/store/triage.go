@@ -149,3 +149,36 @@ func (s *Store) AllTriage() ([]model.TriageEntry, error) {
 	err := s.db.Order("repo, number").Find(&rows).Error
 	return rows, err
 }
+
+// IssueWithBody is the minimal projection needed by crossref's match
+// algorithm: number, title, and body. Kept slim so 1k+ issues load
+// without pulling every column.
+type IssueWithBody struct {
+	Number int
+	Title  string
+	Body   string
+}
+
+// AllIssuesByRepo returns every issue for a repo as (number, title, body).
+// Used by crossref to iterate the target repo.
+func (s *Store) AllIssuesByRepo(repo string) ([]IssueWithBody, error) {
+	var rows []IssueWithBody
+	err := s.db.Table("issues").
+		Select("number, title, body").
+		Where("repo = ?", repo).
+		Order("number").
+		Scan(&rows).Error
+	return rows, err
+}
+
+// OpenIssuesByRepoWithBody returns OPEN issues for a repo as
+// (number, title, body). Used by crossref to iterate source repos.
+func (s *Store) OpenIssuesByRepoWithBody(repo string) ([]IssueWithBody, error) {
+	var rows []IssueWithBody
+	err := s.db.Table("issues").
+		Select("number, title, body").
+		Where("repo = ? AND state = ?", repo, "OPEN").
+		Order("number").
+		Scan(&rows).Error
+	return rows, err
+}

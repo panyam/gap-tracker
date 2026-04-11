@@ -65,6 +65,13 @@ for the full flow model and developer entry points.`,
 	cmd.AddCommand(newShowCmd())
 	cmd.AddCommand(newSyncCmd())
 	cmd.AddCommand(newSyncAllCmd())
+	cmd.AddCommand(newNoteCmd())
+	cmd.AddCommand(newNotesCmd())
+	cmd.AddCommand(newLinkCmd())
+	cmd.AddCommand(newMarkCmd())
+	cmd.AddCommand(newReconcileCmd())
+	cmd.AddCommand(newCrossrefCmd())
+	cmd.AddCommand(newReportCmd())
 
 	return cmd
 }

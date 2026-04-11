@@ -32,6 +32,12 @@ type Client interface {
 	// and FetchOptions.Count (how many to return).
 	FetchIssues(ctx context.Context, repo string, opts FetchOptions) ([]Issue, error)
 
+	// FetchIssue returns a single issue by number. Used by `link` for
+	// lazy target-repo caching (so `report` can display titles of
+	// freshly-linked target issues without a separate sync). Returns
+	// (nil, nil) if the issue doesn't exist (HTTP 404).
+	FetchIssue(ctx context.Context, repo string, number int) (*Issue, error)
+
 	// CreateIssue files a new issue on a repo and returns its number.
 	// Not used in M3 — M4's /gap-track automation needs it.
 	CreateIssue(ctx context.Context, repo string, req CreateIssueRequest) (int, error)

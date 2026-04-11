@@ -2,7 +2,10 @@ package cli
 
 import (
 	"encoding/json"
+	"fmt"
+	"io"
 	"strconv"
+	"strings"
 )
 
 // canonicalBucketOrder is the iteration order used everywhere a grouped
@@ -18,4 +21,59 @@ func itoa(n int) string { return strconv.Itoa(n) }
 // jsonDecode is a thin wrapper so callers don't have to import encoding/json.
 func jsonDecode(raw string, into any) error {
 	return json.Unmarshal([]byte(raw), into)
+}
+
+// writeTextTable is a minimal column-aligned table writer for legacy
+// verbs that render plain output without going through the Renderer
+// interface. render/text.go has a richer implementation but it's
+// internal to that package; we duplicate the tiny amount of code here
+// rather than exporting it.
+func writeTextTable(w io.Writer, headers []string, rows [][]string) {
+	widths := make([]int, len(headers))
+	for i, h := range headers {
+		widths[i] = runeCount(h)
+	}
+	for _, r := range rows {
+		for i, c := range r {
+			if i >= len(widths) {
+				break
+			}
+			if n := runeCount(c); n > widths[i] {
+				widths[i] = n
+			}
+		}
+	}
+
+	writeRow := func(cells []string) {
+		for i, c := range cells {
+			if i >= len(widths) {
+				break
+			}
+			fmt.Fprint(w, c)
+			if i < len(widths)-1 {
+				fmt.Fprint(w, strings.Repeat(" ", widths[i]-runeCount(c)+2))
+			}
+		}
+		fmt.Fprintln(w)
+	}
+
+	writeRow(headers)
+	sep := make([]string, len(headers))
+	for i := range sep {
+		sep[i] = strings.Repeat("-", widths[i])
+	}
+	writeRow(sep)
+	for _, r := range rows {
+		writeRow(r)
+	}
+}
+
+// runeCount counts unicode code points in s, so column widths aren't
+// skewed by multi-byte characters.
+func runeCount(s string) int {
+	n := 0
+	for range s {
+		n++
+	}
+	return n
 }

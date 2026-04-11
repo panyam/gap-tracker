@@ -167,6 +167,50 @@ func (c *CLIClient) IssueState(ctx context.Context, repo string, number int) (st
 	return upperState(raw.State), nil
 }
 
+// FetchIssue retrieves a single issue by number. Returns (nil, nil) if
+// gh reports the issue doesn't exist (non-zero exit, typically 404) —
+// matches Python's _ensure_target_issue which silently bails on failure.
+func (c *CLIClient) FetchIssue(ctx context.Context, repo string, number int) (*Issue, error) {
+	endpoint := fmt.Sprintf("repos/%s/issues/%d", repo, number)
+	out, err := c.runGh(ctx, "api", endpoint)
+	if err != nil {
+		return nil, nil
+	}
+	var raw struct {
+		Number    int    `json:"number"`
+		Title     string `json:"title"`
+		State     string `json:"state"`
+		CreatedAt string `json:"created_at"`
+		UpdatedAt string `json:"updated_at"`
+		HTMLURL   string `json:"html_url"`
+		Body      string `json:"body"`
+		Labels    []struct {
+			Name string `json:"name"`
+		} `json:"labels"`
+	}
+	if err := json.Unmarshal(out, &raw); err != nil {
+		return nil, fmt.Errorf("decode issue %s#%d: %w", repo, number, err)
+	}
+	labels := make([]string, 0, len(raw.Labels))
+	for _, l := range raw.Labels {
+		labels = append(labels, l.Name)
+	}
+	body := raw.Body
+	if len(body) > 2000 {
+		body = body[:2000]
+	}
+	return &Issue{
+		Number:    raw.Number,
+		Title:     raw.Title,
+		State:     upperState(raw.State),
+		Labels:    labels,
+		CreatedAt: raw.CreatedAt,
+		UpdatedAt: raw.UpdatedAt,
+		URL:       raw.HTMLURL,
+		Body:      body,
+	}, nil
+}
+
 // runGh runs `gh` with the given args and returns stdout.
 func (c *CLIClient) runGh(ctx context.Context, args ...string) ([]byte, error) {
 	bin := c.Path
