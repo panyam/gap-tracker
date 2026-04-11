@@ -22,7 +22,7 @@ func newReportCmd() *cobra.Command {
 	var byPriority bool
 	cmd := &cobra.Command{
 		Use:   "report",
-		Short: "Per-source view of tracked/untracked open issues + all-gaps summary",
+		Short: "[legacy gaps table] Per-source tracked/untracked + all-gaps summary (prefer: triage status / triage list)",
 		RunE: func(cmd *cobra.Command, args []string) error {
 			a, err := app.Load(rootDir, project, outputMode)
 			if err != nil {

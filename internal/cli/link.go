@@ -21,7 +21,7 @@ import (
 func newLinkCmd() *cobra.Command {
 	return &cobra.Command{
 		Use:   "link <feature> <target_issue#> [source_evidence]",
-		Short: "Link a feature name to a target issue + its source evidence",
+		Short: "[legacy gaps table] Link a feature to a target issue (prefer: triage set)",
 		Long: `Creates or updates a row in the legacy 'gaps' table. Feature name is
 the unique key — re-linking with the same feature updates the target
 issue and source evidence.
@@ -115,7 +115,7 @@ func ensureTargetCached(cmd *cobra.Command, a *app.App, number int) error {
 func newMarkCmd() *cobra.Command {
 	return &cobra.Command{
 		Use:   "mark <feature> <status>",
-		Short: "Update the status of a linked gap",
+		Short: "[legacy gaps table] Update a gap's status (prefer: triage set / triage close)",
 		Long: `Set the status column on a gap row by feature name. Common statuses:
 open, closed, deferred, not-applicable, in-progress, done.
 

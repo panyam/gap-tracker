@@ -21,7 +21,7 @@ import (
 func newReconcileCmd() *cobra.Command {
 	return &cobra.Command{
 		Use:   "reconcile",
-		Short: "Sync target repo and auto-close gaps whose target issues closed upstream",
+		Short: "[legacy gaps table] Sync target + auto-close resolved gaps (prefer: sync target:0 + triage close)",
 		Long: `Reconciles the gaps table with the current state of the target repo:
 
   1. Syncs the target repo (up to 1000 issues) to refresh issue states.
