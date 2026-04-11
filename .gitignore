@@ -11,3 +11,6 @@ wheels/
 *.db
 __pycache__/
 .venv/
+
+# Go build artifacts
+bin/
