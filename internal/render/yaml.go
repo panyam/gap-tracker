@@ -38,3 +38,7 @@ func (yamlRenderer) RenderReconcile(w io.Writer, r ReconcileReport) error {
 func (yamlRenderer) RenderReport(w io.Writer, r ReportView) error {
 	return yaml.NewEncoder(w).Encode(r)
 }
+
+func (yamlRenderer) RenderVerify(w io.Writer, r VerifyReport) error {
+	return yaml.NewEncoder(w).Encode(r)
+}

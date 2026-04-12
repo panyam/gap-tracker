@@ -232,3 +232,22 @@ type ReportGapRow struct {
 	Priority  string `yaml:"priority,omitempty"`
 	Status    string `yaml:"status"`
 }
+
+// VerifyReport backs `gapt triage verify`. Rows are individual
+// triage entries that had a pinned test; the renderer groups them
+// by outcome (aligned / drift / skipped / missing-test-file).
+type VerifyReport struct {
+	TargetPath string       `yaml:"target_path"`
+	Tested     int          `yaml:"tested"`
+	Skipped    int          `yaml:"skipped"` // had no test: field
+	Rows       []VerifyRow  `yaml:"rows"`
+}
+
+type VerifyRow struct {
+	Ref        string `yaml:"ref"`       // "<label>:<number>"
+	Bucket     string `yaml:"bucket"`    // what triage says
+	Test       string `yaml:"test"`      // path::TestName
+	Outcome    string `yaml:"outcome"`   // "pass" / "fail" / "skip" / "missing" / "error"
+	Drift      string `yaml:"drift"`     // "aligned" / "should-close" / "regression" / "reopened" / "unknown"
+	Message    string `yaml:"message,omitempty"`
+}

@@ -33,6 +33,7 @@ for the full flow model and developer entry points.`,
 	cmd.AddCommand(newTriageCloseCmd())
 	cmd.AddCommand(newTriageExportCmd())
 	cmd.AddCommand(newTriageImportCmd())
+	cmd.AddCommand(newTriageVerifyCmd())
 	return cmd
 }
 

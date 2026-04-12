@@ -171,6 +171,10 @@ func (p prettyRenderer) RenderReport(w io.Writer, r ReportView) error {
 	return textRenderer{}.RenderReport(w, r)
 }
 
+func (p prettyRenderer) RenderVerify(w io.Writer, r VerifyReport) error {
+	return textRenderer{}.RenderVerify(w, r)
+}
+
 // RenderIssue uses titled sections rather than one monolithic table,
 // because an issue view mixes tabular triage data with free-form notes.
 func (p prettyRenderer) RenderIssue(w io.Writer, v IssueView) error {

@@ -457,3 +457,56 @@ func closedSummaryRows(gs []ReportGapRow) [][]string {
 	}
 	return rows
 }
+
+// RenderVerify writes the drift-check view behind `gapt triage verify`.
+// Rows are grouped by drift status so the interesting ones (anything
+// that isn't "aligned") surface at the top.
+func (textRenderer) RenderVerify(w io.Writer, r VerifyReport) error {
+	fmt.Fprintf(w, "=== Drift check (target_path: %s) ===\n\n", r.TargetPath)
+
+	// Group by drift class.
+	groups := map[string][]VerifyRow{}
+	for _, row := range r.Rows {
+		groups[row.Drift] = append(groups[row.Drift], row)
+	}
+	order := []string{
+		"should-close", "regression", "reopened", "stale-done", "unknown", "aligned",
+	}
+	titles := map[string]string{
+		"should-close": "Should close (real-gap tests now pass)",
+		"regression":   "Regression (already-covered tests now fail)",
+		"reopened":     "Re-opened (done tests now fail)",
+		"stale-done":   "Stale done (marked done, but repro still PENDING-skipped)",
+		"unknown":      "Could not run (missing file / error)",
+		"aligned":      "Aligned (no drift)",
+	}
+
+	shownAny := false
+	for _, g := range order {
+		rows := groups[g]
+		if len(rows) == 0 {
+			continue
+		}
+		shownAny = true
+		fmt.Fprintf(w, "%s (%d)\n", titles[g], len(rows))
+		tableRows := make([][]string, 0, len(rows))
+		for _, row := range rows {
+			tableRows = append(tableRows, []string{
+				row.Ref,
+				row.Bucket,
+				row.Outcome,
+				truncate(row.Test, 55),
+				truncate(row.Message, 50),
+			})
+		}
+		writeTable(w, []string{"ref", "bucket", "outcome", "test", "note"}, tableRows)
+		fmt.Fprintln(w)
+	}
+	if !shownAny {
+		fmt.Fprintln(w, "No classified rows have a pinned test yet.")
+	}
+
+	fmt.Fprintf(w, "Checked: %d tested, %d skipped (no test: field)\n",
+		r.Tested, r.Skipped)
+	return nil
+}

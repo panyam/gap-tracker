@@ -64,6 +64,9 @@ type Renderer interface {
 	RenderCrossref(w io.Writer, r CrossrefReport) error
 	RenderReconcile(w io.Writer, r ReconcileReport) error
 	RenderReport(w io.Writer, r ReportView) error
+
+	// M7 drift-check view.
+	RenderVerify(w io.Writer, r VerifyReport) error
 }
 
 // ForMode returns a Renderer for the given mode, resolving "auto" to
