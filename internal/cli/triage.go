@@ -14,28 +14,8 @@ import (
 	"github.com/panyam/gap-tracker/internal/store"
 )
 
-// newTriageCmd is the parent for all `gapt triage <verb>` subcommands.
-// M2 ships read-only verbs: status, list. Writes (set/unset/close) land
-// in M4; export/import in M5; verify is a stub (M7).
-func newTriageCmd() *cobra.Command {
-	cmd := &cobra.Command{
-		Use:   "triage",
-		Short: "Classify upstream issues against local project state",
-		Long: `gapt triage is the entry point for every classification action.
-
-The DB table 'triage' is the source of truth. See docs/STATE_MACHINE.md
-for the full flow model and developer entry points.`,
-	}
-	cmd.AddCommand(newTriageStatusCmd())
-	cmd.AddCommand(newTriageListCmd())
-	cmd.AddCommand(newTriageSetCmd())
-	cmd.AddCommand(newTriageUnsetCmd())
-	cmd.AddCommand(newTriageCloseCmd())
-	cmd.AddCommand(newTriageExportCmd())
-	cmd.AddCommand(newTriageImportCmd())
-	cmd.AddCommand(newTriageVerifyCmd())
-	return cmd
-}
+// Classification verbs — formerly nested under `gapt triage`, now
+// top-level. gap-tracker IS a triager; the prefix was ceremony.
 
 // --- status --------------------------------------------------------------
 

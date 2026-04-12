@@ -47,13 +47,13 @@ var (
 	outputMode string
 )
 
-// Command group IDs. Used both as the cobra Group.ID field and by the
-// small `inGroup` helper in NewRootCmd that tags each subcommand on
-// registration. Keep these few — the help output gets noisy if we
-// fan out to more than ~3 groups.
+// Command group IDs. Keep these few — the help output gets noisy if
+// we fan out to more than ~4 groups.
 const (
-	groupPrimary = "primary"
-	groupLegacy  = "legacy"
+	groupClassify = "classify"
+	groupData     = "data"
+	groupInspect  = "inspect"
+	groupLegacy   = "legacy"
 )
 
 // NewRootCmd builds the top-level gapt command. Separate constructor so
@@ -79,42 +79,44 @@ for the full flow model and developer entry points.`,
 	cmd.PersistentFlags().StringVarP(&outputMode, "output", "o", "auto",
 		"output format: auto, pretty, text, yaml, json")
 
-	// Register command groups before adding any subcommands so cobra's
-	// help renders them in declaration order. The trailing ':' is a
-	// cobra convention that makes the section look like a header.
 	cmd.AddGroup(
-		&cobra.Group{ID: groupPrimary, Title: "Primary:"},
-		&cobra.Group{
-			ID:    groupLegacy,
-			Title: "Legacy (kept for historical gaps table; prefer triage.*):",
-		},
+		&cobra.Group{ID: groupClassify, Title: "Classification:"},
+		&cobra.Group{ID: groupData, Title: "Data:"},
+		&cobra.Group{ID: groupInspect, Title: "Inspect:"},
+		&cobra.Group{ID: groupLegacy, Title: "Legacy (gaps table; prefer classification verbs):"},
 	)
 
-	// inGroup tags a subcommand with a group ID so it appears under the
-	// correct section in `gapt --help`. Returning the command inline
-	// keeps AddCommand calls one-liners.
-	inGroup := func(id string, c *cobra.Command) *cobra.Command {
+	g := func(id string, c *cobra.Command) *cobra.Command {
 		c.GroupID = id
 		return c
 	}
 
-	// Primary: the canonical daily-driver verbs.
-	cmd.AddCommand(inGroup(groupPrimary, newVersionCmd()))
-	cmd.AddCommand(inGroup(groupPrimary, newTriageCmd()))
-	cmd.AddCommand(inGroup(groupPrimary, newShowCmd()))
-	cmd.AddCommand(inGroup(groupPrimary, newSyncCmd()))
-	cmd.AddCommand(inGroup(groupPrimary, newSyncAllCmd()))
-	cmd.AddCommand(inGroup(groupPrimary, newNoteCmd()))
-	cmd.AddCommand(inGroup(groupPrimary, newNotesCmd()))
-	cmd.AddCommand(inGroup(groupPrimary, newCrossrefCmd()))
+	// Classification — the core workflow, formerly nested under `triage`.
+	cmd.AddCommand(g(groupClassify, newTriageStatusCmd()))
+	cmd.AddCommand(g(groupClassify, newTriageListCmd()))
+	cmd.AddCommand(g(groupClassify, newTriageSetCmd()))
+	cmd.AddCommand(g(groupClassify, newTriageUnsetCmd()))
+	cmd.AddCommand(g(groupClassify, newTriageCloseCmd()))
+	cmd.AddCommand(g(groupClassify, newTriageVerifyCmd()))
 
-	// Legacy: operate on the pre-triage `gaps` table. Kept for
-	// historical row inspection and cleanup. Each command's Short help
-	// already calls out the recommended replacement (see link.go etc).
-	cmd.AddCommand(inGroup(groupLegacy, newLinkCmd()))
-	cmd.AddCommand(inGroup(groupLegacy, newMarkCmd()))
-	cmd.AddCommand(inGroup(groupLegacy, newReportCmd()))
-	cmd.AddCommand(inGroup(groupLegacy, newReconcileCmd()))
+	// Data — ingest + YAML snapshot I/O.
+	cmd.AddCommand(g(groupData, newSyncCmd()))
+	cmd.AddCommand(g(groupData, newSyncAllCmd()))
+	cmd.AddCommand(g(groupData, newTriageExportCmd()))
+	cmd.AddCommand(g(groupData, newTriageImportCmd()))
+
+	// Inspect — read-only views + ad-hoc notes.
+	cmd.AddCommand(g(groupInspect, newShowCmd()))
+	cmd.AddCommand(g(groupInspect, newNoteCmd()))
+	cmd.AddCommand(g(groupInspect, newNotesCmd()))
+	cmd.AddCommand(g(groupInspect, newCrossrefCmd()))
+	cmd.AddCommand(g(groupInspect, newVersionCmd()))
+
+	// Legacy — pre-triage gaps table. Kept for historical rows.
+	cmd.AddCommand(g(groupLegacy, newLinkCmd()))
+	cmd.AddCommand(g(groupLegacy, newMarkCmd()))
+	cmd.AddCommand(g(groupLegacy, newReportCmd()))
+	cmd.AddCommand(g(groupLegacy, newReconcileCmd()))
 
 	return cmd
 }
