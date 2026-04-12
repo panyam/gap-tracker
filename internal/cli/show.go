@@ -18,18 +18,17 @@ import (
 // legacy [triage:...] entries, and optional linked gap.
 func newShowCmd() *cobra.Command {
 	return &cobra.Command{
-		Use:   "show <source>:<number>",
+		Use:   "show <project> <source>:<number>",
 		Short: "Show details for a source issue (title, body, triage, notes, linked gap)",
-		Args:  cobra.ExactArgs(1),
+		Args:  cobra.ExactArgs(2),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			a, err := app.Load(rootDir, project, outputMode)
+			a, rest, err := loadAppFromArgs(args)
 			if err != nil {
 				return err
 			}
 			defer a.Close()
 
-			ref := args[0]
-			view, err := buildIssueView(a, ref)
+			view, err := buildIssueView(a, rest[0])
 			if err != nil {
 				return err
 			}

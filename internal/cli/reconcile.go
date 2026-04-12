@@ -22,8 +22,9 @@ import (
 // issues closes upstream so the gaps table doesn't drift stale.
 func newReconcileCmd() *cobra.Command {
 	return &cobra.Command{
-		Use:   "reconcile",
+		Use:   "reconcile <project>",
 		Short: "[legacy gaps table] Sync target + auto-close resolved gaps (prefer: sync target:0 + triage close)",
+		Args:  cobra.ExactArgs(1),
 		Long: `Reconciles the gaps table with the current state of the target repo:
 
   1. Syncs the target repo (up to 1000 issues) to refresh issue states.
@@ -37,7 +38,7 @@ This does not touch the triage table — triage close is the verb for
 triage-table resolution. reconcile is strictly for the legacy gaps
 workflow.`,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			a, err := app.Load(rootDir, project, outputMode)
+			a, _, err := loadAppFromArgs(args)
 			if err != nil {
 				return err
 			}

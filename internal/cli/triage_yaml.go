@@ -21,7 +21,7 @@ import (
 func newTriageExportCmd() *cobra.Command {
 	var outPath string
 	cmd := &cobra.Command{
-		Use:   "export",
+		Use:   "export <project>",
 		Short: "Write a YAML snapshot of the triage table",
 		Long: `Writes a YAML snapshot of every classified issue to <project>/triage.snapshot.yaml
 (or the path given by --out). The snapshot is intended for git review — commit
@@ -29,8 +29,9 @@ it periodically to get a point-in-time history of the triage state.
 
 The file is parse-compatible with the Python export output, so you can
 diff two snapshots from different tools without worrying about shape.`,
+		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			a, err := app.Load(rootDir, project, outputMode)
+			a, _, err := loadAppFromArgs(args)
 			if err != nil {
 				return err
 			}
@@ -124,17 +125,17 @@ func writeSnapshotFile(path, project string, snap triage.Snapshot) error {
 // with the same file produces the same DB state.
 func newTriageImportCmd() *cobra.Command {
 	return &cobra.Command{
-		Use:   "import <path>",
+		Use:   "import <project> <path>",
 		Short: "Bulk-upsert triage entries from a YAML snapshot",
-		Args:  cobra.ExactArgs(1),
+		Args:  cobra.ExactArgs(2),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			a, err := app.Load(rootDir, project, outputMode)
+			a, rest, err := loadAppFromArgs(args)
 			if err != nil {
 				return err
 			}
 			defer a.Close()
 
-			f, err := os.Open(args[0])
+			f, err := os.Open(rest[0])
 			if err != nil {
 				return err
 			}
@@ -142,11 +143,11 @@ func newTriageImportCmd() *cobra.Command {
 
 			snap, err := triage.ReadSnapshot(f)
 			if err != nil {
-				return errf("parse %s: %w", args[0], err)
+				return errf("parse %s: %w", rest[0], err)
 			}
 
 			imported, skipped, warnings := applySnapshot(a, snap)
-			fmt.Fprintf(os.Stdout, "Imported %d classifications from %s\n", imported, args[0])
+			fmt.Fprintf(os.Stdout, "Imported %d classifications from %s\n", imported, rest[0])
 			if skipped > 0 {
 				fmt.Fprintf(os.Stdout, "Skipped %d rows with no matching issue in DB — run sync first\n", skipped)
 			}

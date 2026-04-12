@@ -25,10 +25,11 @@ import (
 //   - Pairs with score >= 15 are reported as matches, sorted by score.
 func newCrossrefCmd() *cobra.Command {
 	return &cobra.Command{
-		Use:   "crossref",
+		Use:   "crossref <project>",
 		Short: "Suggest matches from source issues to target issues by keyword overlap",
+		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			a, err := app.Load(rootDir, project, outputMode)
+			a, _, err := loadAppFromArgs(args)
 			if err != nil {
 				return err
 			}

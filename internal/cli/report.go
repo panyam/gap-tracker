@@ -22,10 +22,11 @@ import (
 func newReportCmd() *cobra.Command {
 	var byPriority bool
 	cmd := &cobra.Command{
-		Use:   "report",
+		Use:   "report <project>",
 		Short: "[legacy gaps table] Per-source tracked/untracked + all-gaps summary (prefer: triage status / triage list)",
+		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			a, err := app.Load(rootDir, project, outputMode)
+			a, _, err := loadAppFromArgs(args)
 			if err != nil {
 				return err
 			}

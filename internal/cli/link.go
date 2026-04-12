@@ -20,7 +20,7 @@ import (
 // issues table so `report` and `show` can display its title.
 func newLinkCmd() *cobra.Command {
 	return &cobra.Command{
-		Use:   "link <feature> <target_issue#> [source_evidence]",
+		Use:   "link <project> <feature> <target_issue#> [source_evidence]",
 		Short: "[legacy gaps table] Link a feature to a target issue (prefer: triage set)",
 		Long: `Creates or updates a row in the legacy 'gaps' table. Feature name is
 the unique key — re-linking with the same feature updates the target
@@ -34,24 +34,24 @@ After linking, the target issue is fetched from GitHub and cached in
 the local issues table so 'report' and 'show' can display its title.
 
 Examples:
-  gapt link session-timeout 60 "go-sdk:148,spec:282"
-  gapt link oauth-caching 42`,
-		Args: cobra.RangeArgs(2, 3),
+  gapt link mcpkit session-timeout 60 "go-sdk:148,spec:282"
+  gapt link mcpkit oauth-caching 42`,
+		Args: cobra.RangeArgs(3, 4),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			a, err := app.Load(rootDir, project, outputMode)
+			a, rest, err := loadAppFromArgs(args)
 			if err != nil {
 				return err
 			}
 			defer a.Close()
 
-			feature := args[0]
-			targetIssue, err := strconv.Atoi(args[1])
+			feature := rest[0]
+			targetIssue, err := strconv.Atoi(rest[1])
 			if err != nil {
-				return errf("target issue must be an integer, got %q", args[1])
+				return errf("target issue must be an integer, got %q", rest[1])
 			}
 			sourceEvidence := ""
-			if len(args) > 2 {
-				sourceEvidence = args[2]
+			if len(rest) > 2 {
+				sourceEvidence = rest[2]
 			}
 
 			if err := a.Store.LinkGap(feature, targetIssue, sourceEvidence); err != nil {
@@ -114,7 +114,7 @@ func ensureTargetCached(cmd *cobra.Command, a *app.App, number int) error {
 // UPDATE is a no-op; we don't error.
 func newMarkCmd() *cobra.Command {
 	return &cobra.Command{
-		Use:   "mark <feature> <status>",
+		Use:   "mark <project> <feature> <status>",
 		Short: "[legacy gaps table] Update a gap's status (prefer: triage set / triage close)",
 		Long: `Set the status column on a gap row by feature name. Common statuses:
 open, closed, deferred, not-applicable, in-progress, done.
@@ -122,16 +122,16 @@ open, closed, deferred, not-applicable, in-progress, done.
 This is a no-existence-check command — calling mark with an unknown
 feature does nothing and prints the usual output. Matches Python
 behavior.`,
-		Args: cobra.ExactArgs(2),
+		Args: cobra.ExactArgs(3),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			a, err := app.Load(rootDir, project, outputMode)
+			a, rest, err := loadAppFromArgs(args)
 			if err != nil {
 				return err
 			}
 			defer a.Close()
 
-			feature := args[0]
-			status := args[1]
+			feature := rest[0]
+			status := rest[1]
 			if err := a.Store.MarkGap(feature, status); err != nil {
 				return err
 			}

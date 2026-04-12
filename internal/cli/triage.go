@@ -41,10 +41,11 @@ for the full flow model and developer entry points.`,
 
 func newTriageStatusCmd() *cobra.Command {
 	return &cobra.Command{
-		Use:   "status",
+		Use:   "status <project>",
 		Short: "Show per-source bucket counts + unclassified items",
+		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			a, err := app.Load(rootDir, project, outputMode)
+			a, _, err := loadAppFromArgs(args)
 			if err != nil {
 				return err
 			}
@@ -114,10 +115,11 @@ func newTriageListCmd() *cobra.Command {
 		sourceFilter string
 	)
 	cmd := &cobra.Command{
-		Use:   "list",
+		Use:   "list <project>",
 		Short: "List classified issues, grouped by bucket",
+		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			a, err := app.Load(rootDir, project, outputMode)
+			a, _, err := loadAppFromArgs(args)
 			if err != nil {
 				return err
 			}
@@ -148,7 +150,7 @@ var targetTokenRe = regexp.MustCompile(`^[A-Za-z0-9_./#-]+$`)
 func newTriageSetCmd() *cobra.Command {
 	var testPath string
 	cmd := &cobra.Command{
-		Use:   "set <ref> <bucket> [target] <rationale...>",
+		Use:   "set <project> <ref> <bucket> [target] <rationale...>",
 		Short: "Upsert a triage classification for one issue",
 		Long: `Upsert a triage row. Target is optional and detected by shape:
 if the third positional arg has no spaces and matches a token-like
@@ -157,23 +159,23 @@ pattern (letters, digits, _.#/-), it's treated as the target
 Otherwise everything after <bucket> is rationale.
 
 Examples:
-  gapt triage set ext-apps:298 real-gap mcpkit#190 "No template support"
-  gapt triage set ext-apps:26 not-applicable "IANA admin task"
+  gapt triage set mcpkit ext-apps:298 real-gap mcpkit#190 "No template support"
+  gapt triage set mcpkit ext-apps:26 not-applicable "IANA admin task"
 
 Use --test path::TestName to record the pinned repro test. The field
 is only overwritten when --test is passed, so re-setting without it
 preserves the existing test pointer.`,
-		Args: cobra.MinimumNArgs(3),
+		Args: cobra.MinimumNArgs(4),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			a, err := app.Load(rootDir, project, outputMode)
+			a, afterProj, err := loadAppFromArgs(args)
 			if err != nil {
 				return err
 			}
 			defer a.Close()
 
-			ref := args[0]
-			bucket := args[1]
-			rest := args[2:]
+			ref := afterProj[0]
+			bucket := afterProj[1]
+			rest := afterProj[2:]
 
 			target := ""
 			rationaleParts := rest
@@ -230,17 +232,17 @@ preserves the existing test pointer.`,
 
 func newTriageUnsetCmd() *cobra.Command {
 	return &cobra.Command{
-		Use:   "unset <ref>",
+		Use:   "unset <project> <ref>",
 		Short: "Remove a triage classification",
-		Args:  cobra.ExactArgs(1),
+		Args:  cobra.ExactArgs(2),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			a, err := app.Load(rootDir, project, outputMode)
+			a, rest, err := loadAppFromArgs(args)
 			if err != nil {
 				return err
 			}
 			defer a.Close()
 
-			label, number, err := parseRef(args[0])
+			label, number, err := parseRef(rest[0])
 			if err != nil {
 				return err
 			}
@@ -267,12 +269,12 @@ func newTriageUnsetCmd() *cobra.Command {
 
 func newTriageCloseCmd() *cobra.Command {
 	return &cobra.Command{
-		Use:   "close <ref> [target]",
+		Use:   "close <project> <ref> [target]",
 		Short: "Flip a classification to 'done' after the target issue closed",
 		Long: `Flip a triage row to the 'done' bucket. Refuses unless the target
 issue is actually CLOSED in the local DB — so run:
 
-  gapt sync -p <project> target:0
+  gapt sync <project> target:0
 
 first if the target was just closed upstream. This keeps the 'done'
 classification honest: you can't mark something resolved until the
@@ -281,18 +283,18 @@ fix has landed and the issue is closed in source control.
 If [target] is omitted, the existing target from the triage row is
 used. Pass [target] explicitly to override (e.g. when a different
 issue actually fixed the gap).`,
-		Args: cobra.RangeArgs(1, 2),
+		Args: cobra.RangeArgs(2, 3),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			a, err := app.Load(rootDir, project, outputMode)
+			a, rest, err := loadAppFromArgs(args)
 			if err != nil {
 				return err
 			}
 			defer a.Close()
 
-			ref := args[0]
+			ref := rest[0]
 			override := ""
-			if len(args) > 1 {
-				override = args[1]
+			if len(rest) > 1 {
+				override = rest[1]
 			}
 
 			label, number, err := parseRef(ref)

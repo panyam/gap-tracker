@@ -23,28 +23,28 @@ import (
 func newNoteCmd() *cobra.Command {
 	var overwrite bool
 	cmd := &cobra.Command{
-		Use:   "note <ref> <text>",
+		Use:   "note <project> <ref> <text>",
 		Short: "Append (or --set overwrite) a note on an issue",
 		Long: `Add a free-form note to an issue. Notes are stored as a JSON array in
 the issues.notes column. Ref accepts either "<source>:<number>" for a
 source-repo issue or "<number>" / "#<number>" for a target-repo issue.
 
 Examples:
-  gapt note go-sdk:148 "OAuth token caching"
-  gapt note go-sdk:148 "[pass] test_oauth_refresh passes"
-  gapt note 42 "scratchpad note on mcpkit#42"
-  gapt note #42 "same as above, # prefix tolerated"
-  gapt note 42 "rewritten" --set        # overwrites all notes`,
-		Args: cobra.MinimumNArgs(2),
+  gapt note mcpkit go-sdk:148 "OAuth token caching"
+  gapt note mcpkit go-sdk:148 "[pass] test_oauth_refresh passes"
+  gapt note mcpkit 42 "scratchpad note on mcpkit#42"
+  gapt note mcpkit #42 "same as above, # prefix tolerated"
+  gapt note mcpkit 42 "rewritten" --set        # overwrites all notes`,
+		Args: cobra.MinimumNArgs(3),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			a, err := app.Load(rootDir, project, outputMode)
+			a, rest, err := loadAppFromArgs(args)
 			if err != nil {
 				return err
 			}
 			defer a.Close()
 
-			ref := args[0]
-			text := strings.Join(args[1:], " ")
+			ref := rest[0]
+			text := strings.Join(rest[1:], " ")
 
 			repo, num, err := parseRefOrTarget(a.Cfg, ref)
 			if err != nil {
@@ -87,7 +87,7 @@ Examples:
 // newNotesCmd is `gapt notes [filter]` — list issues with non-empty notes.
 func newNotesCmd() *cobra.Command {
 	return &cobra.Command{
-		Use:   "notes [filter]",
+		Use:   "notes <project> [filter]",
 		Short: "List issues with notes, optionally filtered by substring",
 		Long: `Lists every issue whose notes column is non-empty, optionally
 filtered by substring (matched against the raw JSON). Useful for
@@ -95,20 +95,20 @@ finding issues tagged with e.g. "[fail]", "route:servicekit", or
 any other marker you've scattered through notes.
 
 Examples:
-  gapt notes                     list everything with notes
-  gapt notes route:servicekit    filter to routing-tagged notes
-  gapt notes '[fail]'            filter to failed-validation notes`,
-		Args: cobra.RangeArgs(0, 1),
+  gapt notes mcpkit                     list everything with notes
+  gapt notes mcpkit route:servicekit    filter to routing-tagged notes
+  gapt notes mcpkit '[fail]'            filter to failed-validation notes`,
+		Args: cobra.RangeArgs(1, 2),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			a, err := app.Load(rootDir, project, outputMode)
+			a, rest, err := loadAppFromArgs(args)
 			if err != nil {
 				return err
 			}
 			defer a.Close()
 
 			filter := ""
-			if len(args) > 0 {
-				filter = args[0]
+			if len(rest) > 0 {
+				filter = rest[0]
 			}
 
 			summaries, err := a.Store.ListIssuesWithNotes(filter)

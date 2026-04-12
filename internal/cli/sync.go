@@ -25,17 +25,17 @@ import (
 func newSyncCmd() *cobra.Command {
 	var count int
 	cmd := &cobra.Command{
-		Use:   "sync <source>:<offset>",
+		Use:   "sync <project> <source>:<offset>",
 		Short: "Sync issues for one source (or target) from GitHub into the local DB",
-		Args:  cobra.ExactArgs(1),
+		Args:  cobra.ExactArgs(2),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			a, err := app.Load(rootDir, project, outputMode)
+			a, rest, err := loadAppFromArgs(args)
 			if err != nil {
 				return err
 			}
 			defer a.Close()
 
-			label, offset, err := parseRefOffset(args[0])
+			label, offset, err := parseRefOffset(rest[0])
 			if err != nil {
 				return err
 			}
@@ -55,10 +55,11 @@ func newSyncCmd() *cobra.Command {
 func newSyncAllCmd() *cobra.Command {
 	var count int
 	cmd := &cobra.Command{
-		Use:   "sync-all",
+		Use:   "sync-all <project>",
 		Short: "Sync every source + target from offset 0 in one shot",
+		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			a, err := app.Load(rootDir, project, outputMode)
+			a, _, err := loadAppFromArgs(args)
 			if err != nil {
 				return err
 			}

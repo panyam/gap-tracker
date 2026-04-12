@@ -40,7 +40,7 @@ import (
 // `gapt triage close` to reconcile.
 func newTriageVerifyCmd() *cobra.Command {
 	return &cobra.Command{
-		Use:   "verify",
+		Use:   "verify <project>",
 		Short: "Run pinned tests against target_path and flag drift vs triage buckets",
 		Long: `Reads every classified row with a non-empty 'test:' field, runs the
 test in <config.target_path> using 'go test -run <TestName> <dir>',
@@ -56,8 +56,9 @@ Tests that skip (via t.Skip("PENDING: ...")) are treated as aligned
 for real-gap rows — the PENDING skip is the intended repro gate.
 
 Requires config.target_path in <project>/config.json.`,
+		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			a, err := app.Load(rootDir, project, outputMode)
+			a, _, err := loadAppFromArgs(args)
 			if err != nil {
 				return err
 			}

@@ -39,9 +39,11 @@ import (
 
 // Globals populated by root flags. Subcommands read these via package-level
 // accessors instead of carrying config through every signature.
+//
+// Note: project is NOT a flag — every verb takes it as args[0]. See
+// loadAppFromArgs in helpers.go. Matches the Python CLI shape.
 var (
 	rootDir    string
-	project    string
 	outputMode string
 )
 
@@ -74,8 +76,6 @@ for the full flow model and developer entry points.`,
 
 	cmd.PersistentFlags().StringVar(&rootDir, "root", defaultRoot,
 		"gap-tracker repo root (where <project>/ directories live)")
-	cmd.PersistentFlags().StringVarP(&project, "project", "p", "",
-		"project name (subdirectory under root; required for most commands)")
 	cmd.PersistentFlags().StringVarP(&outputMode, "output", "o", "auto",
 		"output format: auto, pretty, text, yaml, json")
 
