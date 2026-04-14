@@ -98,6 +98,7 @@ for the full flow model and developer entry points.`,
 	cmd.AddCommand(g(groupClassify, newTriageUnsetCmd()))
 	cmd.AddCommand(g(groupClassify, newTriageCloseCmd()))
 	cmd.AddCommand(g(groupClassify, newTriageVerifyCmd()))
+	cmd.AddCommand(g(groupClassify, newSettleCmd()))
 
 	// Data — ingest + YAML snapshot I/O.
 	cmd.AddCommand(g(groupData, newSyncCmd()))
