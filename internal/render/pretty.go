@@ -12,7 +12,17 @@ import (
 // prettyRenderer uses lipgloss for bordered tables, colored headers, and
 // selective cell styling. Intended for interactive terminal use. Never
 // used for pipes or LLM feeds — those go through textRenderer.
-type prettyRenderer struct{}
+type prettyRenderer struct {
+	links LinkResolver // nil-safe: methods check before calling
+}
+
+// linkRef wraps ref text in an OSC 8 clickable hyperlink if a resolver is set.
+func (p *prettyRenderer) linkRef(ref string) string {
+	if p.links == nil {
+		return ref
+	}
+	return osc8(p.links.RefURL(ref), ref)
+}
 
 // Style constants — kept local so renderer choices stay in this file.
 var (
@@ -72,7 +82,7 @@ func (p prettyRenderer) RenderStatus(w io.Writer, s StatusReport) error {
 		}
 		t.Row(row...)
 	}
-	fmt.Fprintln(w, t.Render())
+	fmt.Fprintln(w, linkifyRendered(t.Render(), p.links))
 	fmt.Fprintln(w)
 
 	if len(s.Unclassified) == 0 {
@@ -98,7 +108,7 @@ func (p prettyRenderer) RenderStatus(w io.Writer, s StatusReport) error {
 		}
 		fmt.Fprintln(w, titleStyle.Render(
 			fmt.Sprintf("Unclassified — %s (%d)", g.Label, len(g.Issues))))
-		fmt.Fprintln(w, ut.Render())
+		fmt.Fprintln(w, linkifyRendered(ut.Render(), p.links))
 		fmt.Fprintln(w)
 	}
 	return nil
@@ -143,7 +153,7 @@ func (p prettyRenderer) RenderList(w io.Writer, l TriageList) error {
 		}
 		fmt.Fprintln(w, titleStyle.Render(
 			fmt.Sprintf("%s (%d)", g.Bucket, len(g.Rows))))
-		fmt.Fprintln(w, t.Render())
+		fmt.Fprintln(w, linkifyRendered(t.Render(), p.links))
 		fmt.Fprintln(w)
 	}
 	return nil
@@ -156,23 +166,23 @@ func (p prettyRenderer) RenderList(w io.Writer, l TriageList) error {
 // layout already reads fine on a terminal.
 
 func (p prettyRenderer) RenderNotesList(w io.Writer, v NotesListView) error {
-	return textRenderer{}.RenderNotesList(w, v)
+	return textRenderer{links: p.links}.RenderNotesList(w, v)
 }
 
 func (p prettyRenderer) RenderCrossref(w io.Writer, r CrossrefReport) error {
-	return textRenderer{}.RenderCrossref(w, r)
+	return textRenderer{links: p.links}.RenderCrossref(w, r)
 }
 
 func (p prettyRenderer) RenderReconcile(w io.Writer, r ReconcileReport) error {
-	return textRenderer{}.RenderReconcile(w, r)
+	return textRenderer{links: p.links}.RenderReconcile(w, r)
 }
 
 func (p prettyRenderer) RenderReport(w io.Writer, r ReportView) error {
-	return textRenderer{}.RenderReport(w, r)
+	return textRenderer{links: p.links}.RenderReport(w, r)
 }
 
 func (p prettyRenderer) RenderVerify(w io.Writer, r VerifyReport) error {
-	return textRenderer{}.RenderVerify(w, r)
+	return textRenderer{links: p.links}.RenderVerify(w, r)
 }
 
 // RenderIssue uses titled sections rather than one monolithic table,
@@ -180,8 +190,9 @@ func (p prettyRenderer) RenderVerify(w io.Writer, r VerifyReport) error {
 func (p prettyRenderer) RenderIssue(w io.Writer, v IssueView) error {
 	hr := borderStyle.Render(strings.Repeat("─", 80))
 	fmt.Fprintln(w, hr)
-	fmt.Fprintln(w, titleStyle.Render(fmt.Sprintf("%s#%d  [%s]",
-		v.Repo, v.Number, v.State)))
+	issueRef := fmt.Sprintf("%s#%d", v.Repo, v.Number)
+	fmt.Fprintln(w, titleStyle.Render(fmt.Sprintf("%s  [%s]",
+		p.linkRef(issueRef), v.State)))
 	fmt.Fprintln(w, "  "+v.Title)
 	if v.Labels != "" {
 		fmt.Fprintln(w, "  Labels: "+v.Labels)
@@ -197,7 +208,7 @@ func (p prettyRenderer) RenderIssue(w io.Writer, v IssueView) error {
 		t := v.Triage
 		header := fmt.Sprintf("Triage: %s", t.Bucket)
 		if t.Target != "" {
-			header += "  →  " + t.Target
+			header += "  →  " + p.linkRef(t.Target)
 		}
 		header += fmt.Sprintf("  (classified %s", shortDate(t.ClassifiedAt))
 		if t.UpdatedAt != "" && t.UpdatedAt != t.ClassifiedAt {
@@ -229,11 +240,12 @@ func (p prettyRenderer) RenderIssue(w io.Writer, v IssueView) error {
 		g := v.Gap
 		ours := "none"
 		if g.TargetIssue > 0 {
-			ours = fmt.Sprintf("#%d", g.TargetIssue)
+			oursRef := fmt.Sprintf("%s#%d", g.TargetRepo, g.TargetIssue)
+			ours = p.linkRef(oursRef)
 		}
 		fmt.Fprintln(w, titleStyle.Copy().MarginTop(1).Render(
-			fmt.Sprintf("Linked gap: %s  →  %s%s  [%s]",
-				g.Feature, g.TargetRepo, ours, g.GapStatus)))
+			fmt.Sprintf("Linked gap: %s  →  %s  [%s]",
+				g.Feature, ours, g.GapStatus)))
 		if g.TargetTitle != "" {
 			fmt.Fprintf(w, "  %s  [%s]\n", g.TargetTitle, g.TargetState)
 		}

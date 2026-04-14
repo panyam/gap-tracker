@@ -9,7 +9,20 @@ import (
 // textRenderer writes plain ASCII with aligned columns and no ANSI codes.
 // This is the mode pipes default to, and the one we recommend feeding to
 // LLMs — escape sequences from pretty mode become noise in that context.
-type textRenderer struct{}
+//
+// When links is non-nil (e.g. when pretty delegates legacy verbs), refs
+// are wrapped in OSC 8 terminal hyperlinks.
+type textRenderer struct {
+	links LinkResolver
+}
+
+// linkRef wraps ref text in an OSC 8 clickable hyperlink if a resolver is set.
+func (t textRenderer) linkRef(ref string) string {
+	if t.links == nil {
+		return ref
+	}
+	return osc8(t.links.RefURL(ref), ref)
+}
 
 // bucketOrder is the canonical iteration order for buckets. Kept as a
 // package-level var so pretty/yaml renderers can reuse it.
@@ -19,7 +32,7 @@ var bucketOrder = []string{
 }
 
 // RenderStatus writes the per-source summary + unclassified tail.
-func (textRenderer) RenderStatus(w io.Writer, s StatusReport) error {
+func (tr textRenderer) RenderStatus(w io.Writer, s StatusReport) error {
 	fmt.Fprintf(w, "Triage status: %s\n", s.Project)
 	fmt.Fprintln(w)
 
@@ -55,7 +68,7 @@ func (textRenderer) RenderStatus(w io.Writer, s StatusReport) error {
 		uheaders := []string{"ref", "title"}
 		urows := make([][]string, 0, len(g.Issues))
 		for _, it := range g.Issues {
-			urows = append(urows, []string{it.Ref, truncate(it.Title, 100)})
+			urows = append(urows, []string{tr.linkRef(it.Ref), truncate(it.Title, 100)})
 		}
 		writeTable(w, uheaders, urows)
 		fmt.Fprintln(w)
@@ -65,7 +78,7 @@ func (textRenderer) RenderStatus(w io.Writer, s StatusReport) error {
 
 // RenderList writes each bucket as its own section with a column-aligned
 // table of triage rows.
-func (textRenderer) RenderList(w io.Writer, l TriageList) error {
+func (tr textRenderer) RenderList(w io.Writer, l TriageList) error {
 	if len(l.Groups) == 0 {
 		fmt.Fprintln(w, "No classifications match the filter.")
 		return nil
@@ -79,10 +92,10 @@ func (textRenderer) RenderList(w io.Writer, l TriageList) error {
 		rows := make([][]string, 0, len(g.Rows))
 		for _, r := range g.Rows {
 			rows = append(rows, []string{
-				r.Ref,
+				tr.linkRef(r.Ref),
 				r.State,
 				truncate(r.Title, 60),
-				dash(r.Target),
+				tr.linkRef(dash(r.Target)),
 				truncate(r.Rationale, 120),
 			})
 		}
@@ -94,9 +107,10 @@ func (textRenderer) RenderList(w io.Writer, l TriageList) error {
 // RenderIssue writes the per-issue detail view — header, optional triage
 // block, optional notes, optional linked gap. Matches the Python cmd_show
 // layout closely for parity testing.
-func (textRenderer) RenderIssue(w io.Writer, v IssueView) error {
+func (tr textRenderer) RenderIssue(w io.Writer, v IssueView) error {
 	fmt.Fprintln(w, strings.Repeat("-", 80))
-	fmt.Fprintf(w, "  %s#%d  [%s]\n", v.Repo, v.Number, v.State)
+	issueRef := fmt.Sprintf("%s#%d", v.Repo, v.Number)
+	fmt.Fprintf(w, "  %s  [%s]\n", tr.linkRef(issueRef), v.State)
 	fmt.Fprintf(w, "  %s\n", v.Title)
 	if v.Labels != "" {
 		fmt.Fprintf(w, "  Labels: %s\n", v.Labels)
@@ -112,7 +126,7 @@ func (textRenderer) RenderIssue(w io.Writer, v IssueView) error {
 		t := v.Triage
 		line := fmt.Sprintf("Triage: %s", t.Bucket)
 		if t.Target != "" {
-			line += "  →  " + t.Target
+			line += "  →  " + tr.linkRef(t.Target)
 		}
 		line += fmt.Sprintf("  (classified %s", shortDate(t.ClassifiedAt))
 		if t.UpdatedAt != "" && t.UpdatedAt != t.ClassifiedAt {
@@ -144,10 +158,11 @@ func (textRenderer) RenderIssue(w io.Writer, v IssueView) error {
 		g := v.Gap
 		ours := "none"
 		if g.TargetIssue > 0 {
-			ours = fmt.Sprintf("#%d", g.TargetIssue)
+			oursRef := fmt.Sprintf("%s#%d", g.TargetRepo, g.TargetIssue)
+			ours = tr.linkRef(oursRef)
 		}
-		fmt.Fprintf(w, "  + Linked gap: %s  ->  %s%s  [%s]\n",
-			g.Feature, g.TargetRepo, ours, g.GapStatus)
+		fmt.Fprintf(w, "  + Linked gap: %s  ->  %s  [%s]\n",
+			g.Feature, ours, g.GapStatus)
 		if g.TargetTitle != "" {
 			fmt.Fprintf(w, "  |  %s  [%s]\n", g.TargetTitle, g.TargetState)
 		}
@@ -271,14 +286,42 @@ func pad(w io.Writer, s string, width int) {
 	}
 }
 
-// runeLen counts runes, not bytes, so multi-byte characters don't skew
-// column widths. Not grapheme-cluster aware but good enough for our data.
+// runeLen counts visible runes, not bytes, so multi-byte characters don't
+// skew column widths. Strips OSC 8 hyperlink escape sequences so invisible
+// control characters don't inflate the count.
 func runeLen(s string) int {
+	s = stripOSC8(s)
 	n := 0
 	for range s {
 		n++
 	}
 	return n
+}
+
+// stripOSC8 removes OSC 8 terminal hyperlink sequences, leaving only the
+// visible link text. Format: \x1b]8;;URL\x1b\TEXT\x1b]8;;\x1b\
+func stripOSC8(s string) string {
+	if !strings.Contains(s, "\x1b]8;") {
+		return s
+	}
+	var b strings.Builder
+	for len(s) > 0 {
+		i := strings.Index(s, "\x1b]8;")
+		if i < 0 {
+			b.WriteString(s)
+			break
+		}
+		b.WriteString(s[:i])
+		s = s[i:]
+		// Skip past the ST (string terminator): \x1b\
+		j := strings.Index(s, "\x1b\\")
+		if j < 0 {
+			b.WriteString(s)
+			break
+		}
+		s = s[j+2:] // skip \x1b\
+	}
+	return b.String()
 }
 
 // --- legacy verb renderers (text) ----------------------------------------
@@ -317,12 +360,12 @@ func (textRenderer) RenderNotesList(w io.Writer, v NotesListView) error {
 }
 
 // RenderCrossref writes the plain-text view behind `gapt crossref`.
-func (textRenderer) RenderCrossref(w io.Writer, r CrossrefReport) error {
+func (tr textRenderer) RenderCrossref(w io.Writer, r CrossrefReport) error {
 	fmt.Fprintf(w, "=== Cross-reference: %s ===\n\n", r.Project)
 	for _, sec := range r.Sources {
 		fmt.Fprintf(w, "--- %s (%d open) → %s ---\n", sec.Label, sec.OpenCount, r.Target)
 		for _, m := range sec.Matched {
-			fmt.Fprintf(w, "  %s → %s (score=%d)\n", m.SrcRef, m.TgtRef, m.Score)
+			fmt.Fprintf(w, "  %s → %s (score=%d)\n", tr.linkRef(m.SrcRef), tr.linkRef(m.TgtRef), m.Score)
 			fmt.Fprintf(w, "    src: %s\n", truncate(m.SrcTitle, 70))
 			fmt.Fprintf(w, "    tgt: %s\n", truncate(m.TgtTitle, 70))
 		}
@@ -333,7 +376,7 @@ func (textRenderer) RenderCrossref(w io.Writer, r CrossrefReport) error {
 				shown = shown[:20]
 			}
 			for _, u := range shown {
-				fmt.Fprintf(w, "    %s: %s\n", u.Ref, truncate(u.Title, 70))
+				fmt.Fprintf(w, "    %s: %s\n", tr.linkRef(u.Ref), truncate(u.Title, 70))
 			}
 			if len(sec.Unmatched) > 20 {
 				fmt.Fprintf(w, "    ... and %d more\n", len(sec.Unmatched)-20)
@@ -374,7 +417,7 @@ func (textRenderer) RenderReconcile(w io.Writer, r ReconcileReport) error {
 
 // RenderReport writes the plain-text view behind `gapt report`. Per
 // source: tracked + untracked tables. Then the three-group gaps summary.
-func (textRenderer) RenderReport(w io.Writer, r ReportView) error {
+func (tr textRenderer) RenderReport(w io.Writer, r ReportView) error {
 	fmt.Fprintf(w, "\nGap Report: %s  (target: %s)\n\n", r.Project, r.TargetRepo)
 
 	for _, src := range r.Sources {
@@ -385,7 +428,7 @@ func (textRenderer) RenderReport(w io.Writer, r ReportView) error {
 			rows := make([][]string, 0, len(src.Tracked))
 			for _, t := range src.Tracked {
 				rows = append(rows, []string{
-					t.Badge, t.SrcRef, truncate(t.SrcTitle, 60), t.OursRef, truncate(t.OursTitle, 60),
+					t.Badge, tr.linkRef(t.SrcRef), truncate(t.SrcTitle, 60), tr.linkRef(t.OursRef), truncate(t.OursTitle, 60),
 				})
 			}
 			writeTable(w, []string{"", "source", "source title", "ours", "our title"}, rows)
@@ -397,7 +440,7 @@ func (textRenderer) RenderReport(w io.Writer, r ReportView) error {
 			rows := make([][]string, 0, len(src.Untracked))
 			for _, u := range src.Untracked {
 				rows = append(rows, []string{
-					u.Ref, truncate(u.Title, 70), truncate(u.Labels, 30),
+					tr.linkRef(u.Ref), truncate(u.Title, 70), truncate(u.Labels, 30),
 				})
 			}
 			writeTable(w, []string{"ref", "title", "labels"}, rows)
@@ -415,14 +458,14 @@ func (textRenderer) RenderReport(w io.Writer, r ReportView) error {
 			fmt.Fprintf(w, "Open gaps (%d)\n", len(s.Open))
 			writeTable(w,
 				[]string{"", "evidence", "ours", "title", "pri"},
-				gapSummaryRows(s.Open))
+				tr.gapSummaryRows(s.Open))
 			fmt.Fprintln(w)
 		}
 		if len(s.Deferred) > 0 {
 			fmt.Fprintf(w, "Deferred (%d)\n", len(s.Deferred))
 			rows := make([][]string, 0, len(s.Deferred))
 			for _, g := range s.Deferred {
-				rows = append(rows, []string{g.Badge, g.Evidence, g.Feature})
+				rows = append(rows, []string{g.Badge, tr.linkRef(g.Evidence), g.Feature})
 			}
 			writeTable(w, []string{"", "evidence", "feature"}, rows)
 			fmt.Fprintln(w)
@@ -431,28 +474,28 @@ func (textRenderer) RenderReport(w io.Writer, r ReportView) error {
 			fmt.Fprintf(w, "Closed / not-applicable (%d)\n", len(s.Closed))
 			writeTable(w,
 				[]string{"", "evidence", "ours", "title"},
-				closedSummaryRows(s.Closed))
+				tr.closedSummaryRows(s.Closed))
 			fmt.Fprintln(w)
 		}
 	}
 	return nil
 }
 
-func gapSummaryRows(gs []ReportGapRow) [][]string {
+func (tr textRenderer) gapSummaryRows(gs []ReportGapRow) [][]string {
 	rows := make([][]string, 0, len(gs))
 	for _, g := range gs {
 		rows = append(rows, []string{
-			g.Badge, g.Evidence, g.OursRef, truncate(g.OursTitle, 55), g.Priority,
+			g.Badge, tr.linkRef(g.Evidence), tr.linkRef(g.OursRef), truncate(g.OursTitle, 55), g.Priority,
 		})
 	}
 	return rows
 }
 
-func closedSummaryRows(gs []ReportGapRow) [][]string {
+func (tr textRenderer) closedSummaryRows(gs []ReportGapRow) [][]string {
 	rows := make([][]string, 0, len(gs))
 	for _, g := range gs {
 		rows = append(rows, []string{
-			g.Badge, g.Evidence, g.OursRef, truncate(g.OursTitle, 55),
+			g.Badge, tr.linkRef(g.Evidence), tr.linkRef(g.OursRef), truncate(g.OursTitle, 55),
 		})
 	}
 	return rows

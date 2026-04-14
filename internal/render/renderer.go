@@ -70,8 +70,9 @@ type Renderer interface {
 }
 
 // ForMode returns a Renderer for the given mode, resolving "auto" to
-// pretty if isTTY is true, text otherwise.
-func ForMode(m Mode, isTTY bool) Renderer {
+// pretty if isTTY is true, text otherwise. An optional LinkResolver
+// enables clickable OSC 8 hyperlinks in pretty mode.
+func ForMode(m Mode, isTTY bool, links ...LinkResolver) Renderer {
 	if m == ModeAuto {
 		if isTTY {
 			m = ModePretty
@@ -79,9 +80,15 @@ func ForMode(m Mode, isTTY bool) Renderer {
 			m = ModeText
 		}
 	}
+
+	var lr LinkResolver
+	if len(links) > 0 {
+		lr = links[0]
+	}
+
 	switch m {
 	case ModePretty:
-		return &prettyRenderer{}
+		return &prettyRenderer{links: lr}
 	case ModeText:
 		return &textRenderer{}
 	case ModeYAML:

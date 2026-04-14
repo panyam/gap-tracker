@@ -46,7 +46,15 @@ func Load(rootDir, project, outputMode string) (*App, error) {
 		_ = s.Close()
 		return nil, err
 	}
-	r := render.ForMode(mode, render.IsTerminal(os.Stdout))
+	// Build a link resolver so pretty-mode refs become clickable hyperlinks.
+	lr := &render.ConfigLinkResolver{
+		TargetRepo:  cfg.TargetRepo,
+		LabelToRepo: make(map[string]string, len(cfg.Sources)),
+	}
+	for _, s := range cfg.Sources {
+		lr.LabelToRepo[s.Label] = s.Repo
+	}
+	r := render.ForMode(mode, render.IsTerminal(os.Stdout), lr)
 
 	return &App{
 		Cfg:      cfg,
