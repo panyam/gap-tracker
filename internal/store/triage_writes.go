@@ -10,6 +10,7 @@ import (
 // but the DB write is the final gate.
 var ValidBuckets = map[string]bool{
 	"real-gap":        true,
+	"in-progress":    true,
 	"already-covered": true,
 	"defer-spec-flux": true,
 	"defer-scope":     true,
