@@ -35,8 +35,16 @@ func (yamlRenderer) RenderReconcile(w io.Writer, r ReconcileReport) error {
 	return yaml.NewEncoder(w).Encode(r)
 }
 
-func (yamlRenderer) RenderReport(w io.Writer, r ReportView) error {
+func (yamlRenderer) RenderSearch(w io.Writer, r SearchReport) error {
 	return yaml.NewEncoder(w).Encode(r)
+}
+
+func (yamlRenderer) RenderQuery(w io.Writer, r QueryReport) error {
+	return yaml.NewEncoder(w).Encode(r)
+}
+
+func (yamlRenderer) RenderProposals(w io.Writer, l ProposalList) error {
+	return yaml.NewEncoder(w).Encode(l)
 }
 
 func (yamlRenderer) RenderVerify(w io.Writer, r VerifyReport) error {

@@ -14,8 +14,9 @@ import (
 
 // Source is one upstream feeder repo.
 type Source struct {
-	Repo  string `json:"repo"`
-	Label string `json:"label"`
+	Repo       string `json:"repo"`
+	Label      string `json:"label"`
+	IncludePRs bool   `json:"include_prs,omitempty"`
 }
 
 // Config is the structure of <project>/config.json.
@@ -70,6 +71,16 @@ func (c *Config) SourceLabelToRepo(label string) string {
 		}
 	}
 	return ""
+}
+
+// SourceByLabel returns the Source struct for a label, or nil if not found.
+func (c *Config) SourceByLabel(label string) *Source {
+	for i := range c.Sources {
+		if c.Sources[i].Label == label {
+			return &c.Sources[i]
+		}
+	}
+	return nil
 }
 
 // RepoToSourceLabel is the inverse lookup. Returns the label for a repo,

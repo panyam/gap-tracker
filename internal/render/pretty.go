@@ -177,8 +177,16 @@ func (p prettyRenderer) RenderReconcile(w io.Writer, r ReconcileReport) error {
 	return textRenderer{links: p.links}.RenderReconcile(w, r)
 }
 
-func (p prettyRenderer) RenderReport(w io.Writer, r ReportView) error {
-	return textRenderer{links: p.links}.RenderReport(w, r)
+func (p prettyRenderer) RenderSearch(w io.Writer, r SearchReport) error {
+	return textRenderer{links: p.links}.RenderSearch(w, r)
+}
+
+func (p prettyRenderer) RenderQuery(w io.Writer, r QueryReport) error {
+	return textRenderer{links: p.links}.RenderQuery(w, r)
+}
+
+func (p prettyRenderer) RenderProposals(w io.Writer, l ProposalList) error {
+	return textRenderer{links: p.links}.RenderProposals(w, l)
 }
 
 func (p prettyRenderer) RenderVerify(w io.Writer, r VerifyReport) error {

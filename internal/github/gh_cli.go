@@ -90,8 +90,8 @@ func (c *CLIClient) FetchIssues(ctx context.Context, repo string, opts FetchOpti
 		}
 
 		for _, r := range raw {
-			if r.PullRequest != nil {
-				continue // skip PRs
+			if r.PullRequest != nil && !opts.IncludePRs {
+				continue // skip PRs unless explicitly included
 			}
 			labels := make([]string, 0, len(r.Labels))
 			for _, l := range r.Labels {

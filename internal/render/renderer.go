@@ -63,7 +63,13 @@ type Renderer interface {
 	RenderNotesList(w io.Writer, v NotesListView) error
 	RenderCrossref(w io.Writer, r CrossrefReport) error
 	RenderReconcile(w io.Writer, r ReconcileReport) error
-	RenderReport(w io.Writer, r ReportView) error
+
+	// Search + query views.
+	RenderSearch(w io.Writer, r SearchReport) error
+	RenderQuery(w io.Writer, r QueryReport) error
+
+	// Proposal views.
+	RenderProposals(w io.Writer, l ProposalList) error
 
 	// M7 drift-check view.
 	RenderVerify(w io.Writer, r VerifyReport) error

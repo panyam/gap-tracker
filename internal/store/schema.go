@@ -65,4 +65,38 @@ CREATE TABLE IF NOT EXISTS triage (
     PRIMARY KEY (repo, number),
     FOREIGN KEY (repo, number) REFERENCES issues(repo, number)
 );
+
+-- Proposals track upstream enhancement proposals (SEPs, PEPs, JEPs, etc.)
+-- that drive a project's roadmap. They overlay the issues table — a proposal
+-- is always backed by an issue, but carries extra lifecycle metadata that
+-- issues don't have (stage, priority, theme, release targeting).
+CREATE TABLE IF NOT EXISTS proposals (
+    repo        TEXT NOT NULL,
+    number      INTEGER NOT NULL,
+    kind        TEXT NOT NULL,          -- "SEP", "PEP", "JEP", etc.
+    identifier  TEXT NOT NULL,          -- "SEP-2356", "PEP-484", etc.
+    priority    TEXT DEFAULT '',        -- "P0", "P1", etc.
+    stage       TEXT DEFAULT '',        -- "proposal", "draft", "in-review", "accepted", "accepted-with-changes", "final", "rejected"
+    theme       TEXT DEFAULT '',        -- "Transport Evolution", "Enterprise Readiness"
+    release     TEXT DEFAULT '',        -- "2026-06-30", target release version/date
+    sponsor     TEXT DEFAULT '',        -- who is driving the SEP
+    updated_at  TEXT NOT NULL DEFAULT (datetime('now')),
+    PRIMARY KEY (repo, number),
+    FOREIGN KEY (repo, number) REFERENCES issues(repo, number)
+);
+
+CREATE INDEX IF NOT EXISTS idx_proposals_kind ON proposals(kind);
+CREATE INDEX IF NOT EXISTS idx_proposals_release ON proposals(release);
+CREATE INDEX IF NOT EXISTS idx_proposals_stage ON proposals(stage);
+
+-- FTS5 full-text index over issues. External-content mode avoids
+-- duplicating data — the virtual table reads from the issues table.
+-- We use rowid as the content_rowid; SQLite assigns rowids to all
+-- tables automatically (even those with composite primary keys).
+-- Rebuild is triggered explicitly after UpsertIssues / SetNotes.
+CREATE VIRTUAL TABLE IF NOT EXISTS issues_fts USING fts5(
+    title, body, labels, notes,
+    content=issues,
+    content_rowid=rowid
+);
 `

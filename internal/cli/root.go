@@ -25,7 +25,6 @@
 //	└── Legacy (prefer triage.*):
 //	    ├── link
 //	    ├── mark
-//	    ├── report
 //	    └── reconcile
 package cli
 
@@ -106,17 +105,21 @@ for the full flow model and developer entry points.`,
 	cmd.AddCommand(g(groupData, newTriageExportCmd()))
 	cmd.AddCommand(g(groupData, newTriageImportCmd()))
 
+	// Proposals — upstream enhancement proposals driving the roadmap.
+	cmd.AddCommand(g(groupData, newPropCmd()))
+
 	// Inspect — read-only views + ad-hoc notes.
 	cmd.AddCommand(g(groupInspect, newShowCmd()))
 	cmd.AddCommand(g(groupInspect, newNoteCmd()))
 	cmd.AddCommand(g(groupInspect, newNotesCmd()))
 	cmd.AddCommand(g(groupInspect, newCrossrefCmd()))
+	cmd.AddCommand(g(groupInspect, newSearchCmd()))
+	cmd.AddCommand(g(groupInspect, newQueryCmd()))
 	cmd.AddCommand(g(groupInspect, newVersionCmd()))
 
 	// Legacy — pre-triage gaps table. Kept for historical rows.
 	cmd.AddCommand(g(groupLegacy, newLinkCmd()))
 	cmd.AddCommand(g(groupLegacy, newMarkCmd()))
-	cmd.AddCommand(g(groupLegacy, newReportCmd()))
 	cmd.AddCommand(g(groupLegacy, newReconcileCmd()))
 
 	return cmd

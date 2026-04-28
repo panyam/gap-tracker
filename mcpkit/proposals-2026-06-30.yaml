@@ -1,0 +1,236 @@
+# MCP spec release 2026-06-30 — SEPs scoped for this release
+# Source: https://plan.modelcontextprotocol.io/releases/1
+# Scraped: 2026-04-28
+proposals:
+  # --- in-review (9) ---
+  - repo: modelcontextprotocol/specification
+    number: 2356
+    kind: SEP
+    identifier: SEP-2356
+    priority: P0
+    stage: in-review
+    theme: Agent Communication
+    release: "2026-06-30"
+    sponsor: localden
+  - repo: modelcontextprotocol/specification
+    number: 2468
+    kind: SEP
+    identifier: SEP-2468
+    priority: P0
+    stage: in-review
+    theme: Enterprise Readiness
+    release: "2026-06-30"
+    sponsor: pcarleton
+  - repo: modelcontextprotocol/specification
+    number: 2549
+    kind: SEP
+    identifier: SEP-2549
+    priority: P0
+    stage: in-review
+    theme: Transport Evolution and Scalability
+    release: "2026-06-30"
+    sponsor: CaitieM20
+  - repo: modelcontextprotocol/specification
+    number: 2557
+    kind: SEP
+    identifier: SEP-2557
+    priority: P0
+    stage: in-review
+    theme: Agent Communication
+    release: "2026-06-30"
+    sponsor: CaitieM20
+  - repo: modelcontextprotocol/specification
+    number: 2106
+    kind: SEP
+    identifier: SEP-2106
+    priority: P1
+    stage: in-review
+    theme: ""
+    release: "2026-06-30"
+    sponsor: olaservo
+  - repo: modelcontextprotocol/specification
+    number: 2145
+    kind: SEP
+    identifier: SEP-2145
+    priority: P1
+    stage: in-review
+    theme: ""
+    release: "2026-06-30"
+    sponsor: pcarleton
+  - repo: modelcontextprotocol/specification
+    number: 2200
+    kind: SEP
+    identifier: SEP-2200
+    priority: P1
+    stage: in-review
+    theme: ""
+    release: "2026-06-30"
+    sponsor: olaservo
+  - repo: modelcontextprotocol/specification
+    number: 2577
+    kind: SEP
+    identifier: SEP-2577
+    priority: P1
+    stage: in-review
+    theme: ""
+    release: "2026-06-30"
+    sponsor: kurtisvg
+  - repo: modelcontextprotocol/specification
+    number: 2596
+    kind: SEP
+    identifier: SEP-2596
+    priority: P1
+    stage: in-review
+    theme: ""
+    release: "2026-06-30"
+    sponsor: localden
+
+  # --- accepted-with-changes (2) ---
+  - repo: modelcontextprotocol/specification
+    number: 2567
+    kind: SEP
+    identifier: SEP-2567
+    priority: P0
+    stage: accepted-with-changes
+    theme: Transport Evolution and Scalability
+    release: "2026-06-30"
+    sponsor: kurtisvg
+  - repo: modelcontextprotocol/specification
+    number: 2575
+    kind: SEP
+    identifier: SEP-2575
+    priority: P0
+    stage: accepted-with-changes
+    theme: ""
+    release: "2026-06-30"
+    sponsor: kurtisvg
+
+  # --- accepted (8) ---
+  - repo: modelcontextprotocol/specification
+    number: 414
+    kind: SEP
+    identifier: SEP-414
+    priority: P0
+    stage: accepted
+    theme: Enterprise Readiness
+    release: "2026-06-30"
+    sponsor: Kludex
+  - repo: modelcontextprotocol/specification
+    number: 837
+    kind: SEP
+    identifier: SEP-837
+    priority: P0
+    stage: accepted
+    theme: Enterprise Readiness
+    release: "2026-06-30"
+    sponsor: localden
+  - repo: modelcontextprotocol/specification
+    number: 2260
+    kind: SEP
+    identifier: SEP-2260
+    priority: P0
+    stage: accepted
+    theme: Transport Evolution and Scalability
+    release: "2026-06-30"
+    sponsor: CaitieM20
+  - repo: modelcontextprotocol/specification
+    number: 2322
+    kind: SEP
+    identifier: SEP-2322
+    priority: P0
+    stage: accepted
+    theme: Transport Evolution and Scalability
+    release: "2026-06-30"
+    sponsor: CaitieM20
+  - repo: modelcontextprotocol/specification
+    number: 2350
+    kind: SEP
+    identifier: SEP-2350
+    priority: P0
+    stage: accepted
+    theme: Enterprise Readiness
+    release: "2026-06-30"
+    sponsor: localden
+  - repo: modelcontextprotocol/specification
+    number: 2351
+    kind: SEP
+    identifier: SEP-2351
+    priority: P0
+    stage: accepted
+    theme: Enterprise Readiness
+    release: "2026-06-30"
+    sponsor: localden
+  - repo: modelcontextprotocol/specification
+    number: 2352
+    kind: SEP
+    identifier: SEP-2352
+    priority: P0
+    stage: accepted
+    theme: Enterprise Readiness
+    release: "2026-06-30"
+    sponsor: localden
+  - repo: modelcontextprotocol/specification
+    number: 2484
+    kind: SEP
+    identifier: SEP-2484
+    priority: P0
+    stage: accepted
+    theme: ""
+    release: "2026-06-30"
+    sponsor: pcarleton
+
+  # --- final (6) ---
+  - repo: modelcontextprotocol/specification
+    number: 2243
+    kind: SEP
+    identifier: SEP-2243
+    priority: P0
+    stage: final
+    theme: ""
+    release: "2026-06-30"
+    sponsor: kurtisvg
+  - repo: modelcontextprotocol/specification
+    number: 1777
+    kind: SEP
+    identifier: SEP-1730
+    priority: ""
+    stage: final
+    theme: Governance Maturation
+    release: "2026-06-30"
+    sponsor: pcarleton
+  - repo: modelcontextprotocol/specification
+    number: 1865
+    kind: SEP
+    identifier: SEP-1865
+    priority: ""
+    stage: final
+    theme: ""
+    release: "2026-06-30"
+    sponsor: dsp-ant
+  - repo: modelcontextprotocol/specification
+    number: 2133
+    kind: SEP
+    identifier: SEP-2133
+    priority: ""
+    stage: final
+    theme: ""
+    release: "2026-06-30"
+    sponsor: pcarleton
+  - repo: modelcontextprotocol/specification
+    number: 2164
+    kind: SEP
+    identifier: SEP-2164
+    priority: ""
+    stage: final
+    theme: ""
+    release: "2026-06-30"
+    sponsor: pja-ant
+  - repo: modelcontextprotocol/specification
+    number: 2207
+    kind: SEP
+    identifier: SEP-2207
+    priority: ""
+    stage: final
+    theme: Enterprise Readiness
+    release: "2026-06-30"
+    sponsor: pcarleton

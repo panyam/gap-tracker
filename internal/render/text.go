@@ -415,90 +415,71 @@ func (textRenderer) RenderReconcile(w io.Writer, r ReconcileReport) error {
 	return nil
 }
 
-// RenderReport writes the plain-text view behind `gapt report`. Per
-// source: tracked + untracked tables. Then the three-group gaps summary.
-func (tr textRenderer) RenderReport(w io.Writer, r ReportView) error {
-	fmt.Fprintf(w, "\nGap Report: %s  (target: %s)\n\n", r.Project, r.TargetRepo)
-
-	for _, src := range r.Sources {
-		fmt.Fprintf(w, "=== %s (%s) — %d open ===\n\n", src.Label, src.Repo, src.OpenCount)
-
-		if len(src.Tracked) > 0 {
-			fmt.Fprintf(w, "Tracked (%d)\n", len(src.Tracked))
-			rows := make([][]string, 0, len(src.Tracked))
-			for _, t := range src.Tracked {
-				rows = append(rows, []string{
-					t.Badge, tr.linkRef(t.SrcRef), truncate(t.SrcTitle, 60), tr.linkRef(t.OursRef), truncate(t.OursTitle, 60),
-				})
-			}
-			writeTable(w, []string{"", "source", "source title", "ours", "our title"}, rows)
-			fmt.Fprintln(w)
-		}
-
-		if len(src.Untracked) > 0 {
-			fmt.Fprintf(w, "Untracked (%d)\n", len(src.Untracked))
-			rows := make([][]string, 0, len(src.Untracked))
-			for _, u := range src.Untracked {
-				rows = append(rows, []string{
-					tr.linkRef(u.Ref), truncate(u.Title, 70), truncate(u.Labels, 30),
-				})
-			}
-			writeTable(w, []string{"ref", "title", "labels"}, rows)
-			fmt.Fprintln(w)
-		}
+// RenderSearch writes the FTS5 search results as a table.
+func (tr textRenderer) RenderSearch(w io.Writer, r SearchReport) error {
+	fmt.Fprintf(w, "Search: %q in %s (%d hits)\n\n", r.Query, r.Project, len(r.Hits))
+	if len(r.Hits) == 0 {
+		fmt.Fprintln(w, "No results.")
+		return nil
 	}
-
-	if r.Summary != nil {
-		s := r.Summary
-		if len(s.Open) > 0 || len(s.Deferred) > 0 || len(s.Closed) > 0 {
-			fmt.Fprintln(w, "=== All Tracked Gaps ===")
-			fmt.Fprintln(w)
-		}
-		if len(s.Open) > 0 {
-			fmt.Fprintf(w, "Open gaps (%d)\n", len(s.Open))
-			writeTable(w,
-				[]string{"", "evidence", "ours", "title", "pri"},
-				tr.gapSummaryRows(s.Open))
-			fmt.Fprintln(w)
-		}
-		if len(s.Deferred) > 0 {
-			fmt.Fprintf(w, "Deferred (%d)\n", len(s.Deferred))
-			rows := make([][]string, 0, len(s.Deferred))
-			for _, g := range s.Deferred {
-				rows = append(rows, []string{g.Badge, tr.linkRef(g.Evidence), g.Feature})
-			}
-			writeTable(w, []string{"", "evidence", "feature"}, rows)
-			fmt.Fprintln(w)
-		}
-		if len(s.Closed) > 0 {
-			fmt.Fprintf(w, "Closed / not-applicable (%d)\n", len(s.Closed))
-			writeTable(w,
-				[]string{"", "evidence", "ours", "title"},
-				tr.closedSummaryRows(s.Closed))
-			fmt.Fprintln(w)
-		}
+	rows := make([][]string, 0, len(r.Hits))
+	for _, h := range r.Hits {
+		rows = append(rows, []string{
+			h.Ref,
+			h.State,
+			truncate(h.Title, 60),
+			dash(h.Bucket),
+			truncate(h.Snippet, 80),
+		})
 	}
+	writeTable(w, []string{"ref", "state", "title", "bucket", "snippet"}, rows)
 	return nil
 }
 
-func (tr textRenderer) gapSummaryRows(gs []ReportGapRow) [][]string {
-	rows := make([][]string, 0, len(gs))
-	for _, g := range gs {
-		rows = append(rows, []string{
-			g.Badge, tr.linkRef(g.Evidence), tr.linkRef(g.OursRef), truncate(g.OursTitle, 55), g.Priority,
-		})
+// RenderQuery writes arbitrary SQL results as a plain table.
+func (textRenderer) RenderQuery(w io.Writer, r QueryReport) error {
+	if len(r.Rows) == 0 {
+		fmt.Fprintln(w, "No rows returned.")
+		return nil
 	}
-	return rows
+	writeTable(w, r.Columns, r.Rows)
+	fmt.Fprintf(w, "\n(%d rows)\n", len(r.Rows))
+	return nil
 }
 
-func (tr textRenderer) closedSummaryRows(gs []ReportGapRow) [][]string {
-	rows := make([][]string, 0, len(gs))
-	for _, g := range gs {
-		rows = append(rows, []string{
-			g.Badge, tr.linkRef(g.Evidence), tr.linkRef(g.OursRef), truncate(g.OursTitle, 55),
-		})
+// RenderProposals writes proposals grouped by stage.
+func (tr textRenderer) RenderProposals(w io.Writer, l ProposalList) error {
+	header := fmt.Sprintf("Proposals: %s", l.Project)
+	if l.Kind != "" {
+		header += fmt.Sprintf(" [%s]", l.Kind)
 	}
-	return rows
+	if l.Release != "" {
+		header += fmt.Sprintf(" release=%s", l.Release)
+	}
+	fmt.Fprintf(w, "%s (%d total)\n\n", header, l.Total)
+
+	if l.Total == 0 {
+		fmt.Fprintln(w, "No proposals found.")
+		return nil
+	}
+
+	for _, g := range l.Groups {
+		fmt.Fprintf(w, "── %s (%d) ──\n", g.Stage, g.Count)
+		rows := make([][]string, 0, len(g.Rows))
+		for _, r := range g.Rows {
+			rows = append(rows, []string{
+				r.Identifier,
+				dash(r.Priority),
+				truncate(r.Title, 55),
+				dash(r.Theme),
+				dash(r.Sponsor),
+				dash(r.Bucket),
+			})
+		}
+		writeTable(w, []string{"id", "pri", "title", "theme", "sponsor", "bucket"}, rows)
+		fmt.Fprintln(w)
+	}
+	return nil
 }
 
 // RenderVerify writes the drift-check view behind `gapt triage verify`.

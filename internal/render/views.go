@@ -183,54 +183,60 @@ type ReconcileMiss struct {
 	Number  int    `yaml:"number"`
 }
 
-// ReportView backs `gapt report [--by-priority]`. Nested per-source
-// sections + gaps-summary groups. Each source section has tracked +
-// untracked tables. The summary has three groups keyed by bucket
-// semantics (open / deferred / closed-or-na).
-type ReportView struct {
-	Project    string          `yaml:"project"`
-	TargetRepo string          `yaml:"target_repo"`
-	Sources    []ReportSource  `yaml:"sources"`
-	Summary    *ReportSummary  `yaml:"summary,omitempty"`
+// SearchReport backs `gapt search`. Flat list of FTS5 hits with
+// relevance ranking and optional triage context.
+type SearchReport struct {
+	Project string       `yaml:"project"`
+	Query   string       `yaml:"query"`
+	Hits    []SearchHit  `yaml:"hits"`
 }
 
-type ReportSource struct {
-	Label     string            `yaml:"label"`
-	Repo      string            `yaml:"repo"`
-	OpenCount int               `yaml:"open_count"`
-	Tracked   []ReportTracked   `yaml:"tracked"`
-	Untracked []ReportUntracked `yaml:"untracked"`
+type SearchHit struct {
+	Ref     string  `yaml:"ref"`              // "repo:number" or "label:number"
+	Title   string  `yaml:"title"`
+	State   string  `yaml:"state"`
+	Snippet string  `yaml:"snippet"`
+	Rank    float64 `yaml:"rank"`
+	Bucket  string  `yaml:"bucket,omitempty"` // empty if unclassified
+	Target  string  `yaml:"target,omitempty"`
 }
 
-type ReportTracked struct {
-	Badge     string `yaml:"badge"`      // "[x]" / "[ ]" / "[>]" / ...
-	SrcRef    string `yaml:"src_ref"`    // "label#N"
-	SrcTitle  string `yaml:"src_title"`
-	OursRef   string `yaml:"ours_ref"`   // "#N" or ""
-	OursTitle string `yaml:"ours_title"`
-	Status    string `yaml:"status"`     // raw status for yaml consumers
+// QueryReport backs `gapt query`. Generic column-based result from
+// arbitrary SQL — columns are discovered at runtime from *sql.Rows.
+type QueryReport struct {
+	SQL     string     `yaml:"sql"`
+	Columns []string   `yaml:"columns"`
+	Rows    [][]string `yaml:"rows"`
 }
 
-type ReportUntracked struct {
-	Ref    string `yaml:"ref"`    // "label#N"
-	Title  string `yaml:"title"`
-	Labels string `yaml:"labels,omitempty"`
+// ProposalList backs `gapt prop list`. Groups proposals by stage.
+type ProposalList struct {
+	Project string           `yaml:"project"`
+	Kind    string           `yaml:"kind,omitempty"`
+	Release string           `yaml:"release,omitempty"`
+	Total   int              `yaml:"total"`
+	Groups  []ProposalGroup  `yaml:"groups"`
 }
 
-type ReportSummary struct {
-	Open     []ReportGapRow `yaml:"open,omitempty"`
-	Deferred []ReportGapRow `yaml:"deferred,omitempty"`
-	Closed   []ReportGapRow `yaml:"closed,omitempty"`
+// ProposalGroup is one stage section in the proposal list output.
+type ProposalGroup struct {
+	Stage string        `yaml:"stage"`
+	Count int           `yaml:"count"`
+	Rows  []ProposalRow `yaml:"rows"`
 }
 
-type ReportGapRow struct {
-	Badge     string `yaml:"badge"`
-	Feature   string `yaml:"feature,omitempty"` // populated for deferred; "evidence" field used elsewhere
-	Evidence  string `yaml:"evidence,omitempty"`
-	OursRef   string `yaml:"ours_ref,omitempty"`
-	OursTitle string `yaml:"ours_title,omitempty"`
-	Priority  string `yaml:"priority,omitempty"`
-	Status    string `yaml:"status"`
+// ProposalRow is one proposal in the list output.
+type ProposalRow struct {
+	Identifier string `yaml:"identifier"`       // "SEP-2356"
+	Priority   string `yaml:"priority"`         // "P0"
+	Title      string `yaml:"title"`
+	Stage      string `yaml:"stage"`
+	Theme      string `yaml:"theme,omitempty"`
+	Sponsor    string `yaml:"sponsor,omitempty"`
+	Release    string `yaml:"release,omitempty"`
+	State      string `yaml:"state"`            // issue state: OPEN/CLOSED
+	Bucket     string `yaml:"bucket,omitempty"` // triage bucket if classified
+	Ref        string `yaml:"ref"`              // "spec:2356"
 }
 
 // VerifyReport backs `gapt triage verify`. Rows are individual

@@ -27,9 +27,9 @@ import "context"
 //     we need rate-limit headers or pagination cursors.
 type Client interface {
 	// FetchIssues pulls issues from a repo ordered by creation date
-	// ascending. Pull requests are filtered out; only real issues
-	// are returned. Honors FetchOptions.Offset (by page * per_page)
-	// and FetchOptions.Count (how many to return).
+	// ascending. By default pull requests are filtered out; set
+	// FetchOptions.IncludePRs to include them. Honors FetchOptions.Offset
+	// (by page * per_page) and FetchOptions.Count (how many to return).
 	FetchIssues(ctx context.Context, repo string, opts FetchOptions) ([]Issue, error)
 
 	// FetchIssue returns a single issue by number. Used by `link` for
@@ -55,8 +55,9 @@ type Client interface {
 // cover the request). Implementations may cap count at their API limit
 // and require multiple calls to fill a larger window.
 type FetchOptions struct {
-	Offset int // first issue index to return (multiple of Count)
-	Count  int // how many issues to return (default 100)
+	Offset     int  // first issue index to return (multiple of Count)
+	Count      int  // how many issues to return (default 100)
+	IncludePRs bool // when true, include pull requests alongside issues
 }
 
 // CreateIssueRequest is the payload for CreateIssue. Kept minimal until

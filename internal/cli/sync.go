@@ -43,7 +43,9 @@ func newSyncCmd() *cobra.Command {
 			if repo == "" {
 				return errf("unknown source label %q", label)
 			}
-			return syncOne(cmd.Context(), a, label, repo, offset, count)
+			src := a.Cfg.SourceByLabel(label)
+			includePRs := src != nil && src.IncludePRs
+			return syncOne(cmd.Context(), a, label, repo, offset, count, includePRs)
 		},
 	}
 	cmd.Flags().IntVar(&count, "count", 100, "how many issues to fetch")
@@ -73,12 +75,12 @@ func newSyncAllCmd() *cobra.Command {
 			// Every source, then target.
 			for _, src := range a.Cfg.Sources {
 				fmt.Fprintf(os.Stdout, "[%s] %s\n", src.Label, src.Repo)
-				if err := syncOne(ctx, a, src.Label, src.Repo, 0, count); err != nil {
+				if err := syncOne(ctx, a, src.Label, src.Repo, 0, count, src.IncludePRs); err != nil {
 					return err
 				}
 			}
 			fmt.Fprintf(os.Stdout, "[target] %s\n", a.Cfg.TargetRepo)
-			if err := syncOne(ctx, a, "target", a.Cfg.TargetRepo, 0, count); err != nil {
+			if err := syncOne(ctx, a, "target", a.Cfg.TargetRepo, 0, count, false); err != nil {
 				return err
 			}
 
@@ -97,11 +99,16 @@ func newSyncAllCmd() *cobra.Command {
 
 // syncOne does a single (label, repo, offset, count) fetch + upsert.
 // Extracted so both sync and sync-all share the work.
-func syncOne(ctx context.Context, a *app.App, label, repo string, offset, count int) error {
-	fmt.Fprintf(os.Stdout, "  Syncing %s (offset=%d, count=%d)...\n", repo, offset, count)
+func syncOne(ctx context.Context, a *app.App, label, repo string, offset, count int, includePRs bool) error {
+	kind := "issues"
+	if includePRs {
+		kind = "issues+PRs"
+	}
+	fmt.Fprintf(os.Stdout, "  Syncing %s %s (offset=%d, count=%d)...\n", repo, kind, offset, count)
 	issues, err := a.GitHub.FetchIssues(ctx, repo, github.FetchOptions{
-		Offset: offset,
-		Count:  count,
+		Offset:     offset,
+		Count:      count,
+		IncludePRs: includePRs,
 	})
 	if err != nil {
 		return fmt.Errorf("fetch %s: %w", repo, err)

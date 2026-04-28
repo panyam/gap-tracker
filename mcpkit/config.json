@@ -8,11 +8,16 @@
     },
     {
       "repo": "modelcontextprotocol/specification",
-      "label": "spec"
+      "label": "spec",
+      "include_prs": true
     },
     {
       "repo": "modelcontextprotocol/ext-apps",
       "label": "ext-apps"
+    },
+    {
+      "repo": "modelcontextprotocol/conformance",
+      "label": "confo"
     }
   ]
 }
