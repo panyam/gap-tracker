@@ -17,18 +17,22 @@ The project name must match a subdirectory in `~/newstack/gap-tracker/` with a `
    - If config doesn't exist, tell user to create it
 
 2. **If no source_ref**: run report mode
-   - Run: `cd ~/newstack/gap-tracker && uv run python main.py report <project> --by-priority`
+   - Run: `gapt status <project>` for bucket counts, then `gapt list <project>` for classified issues
+   - Tip: `gapt search <project> <query>` does FTS5 full-text search across all issues (titles, bodies, labels, notes) for targeted exploration
    - Show the output and stop here
 
 3. **Show the source issue**:
-   - Run: `cd ~/newstack/gap-tracker && uv run python main.py show <project> <source_ref>`
+   - Run: `gapt show <project> <source_ref>`
    - Read the output — title, labels, body
    - **If the output shows "Linked gap:"** → already tracked. Show the link and stop.
 
-4. **Search for matching issues in our repo**:
-   - Extract `target_repo` from config.json
-   - Run: `GH_TOKEN="$GH_PERSONAL_TOKEN" gh issue list --repo <target_repo> --state all --limit 20 --search "<keywords from title>" --json number,title,state`
+4. **Search for matching issues** (local DB first — avoid hitting GitHub):
+   - Search the local DB for related source issues already triaged: `gapt search <project> <keywords from title>`
+   - Search our **target** repo issues locally: `sqlite3 <project>/gaps.db "SELECT number, title, state FROM issues WHERE repo='<target_repo>' AND (title LIKE '%keyword1%' OR title LIKE '%keyword2%') ORDER BY number DESC LIMIT 10"`
+   - If the local DB feels stale, run `gapt sync <project> target:0` to pull latest target issues before searching
+   - Only fall back to `gh issue list` if local search is insufficient (e.g., need full-text body search that FTS5 doesn't cover)
    - If a good match exists, note it for the triage step
+   - For ad-hoc DB exploration: `gapt query <project> "<sql>"` (read-only)
 
 5. **Validate the gap** — determine if this is testable, then probe:
 
@@ -46,11 +50,18 @@ The project name must match a subdirectory in `~/newstack/gap-tracker/` with a `
    c. **Run the test** and observe the raw result (pass/fail). This is the "truth" for the validation note below — record what happens WITHOUT any skip in place.
 
    d. **Record the result** as a note on the source issue:
-      - Pass: `cd ~/newstack/gap-tracker && uv run python main.py note <project> <source_ref> "[pass] <test_file>:<test_name> — <what it proved>"`
-      - Fail: `cd ~/newstack/gap-tracker && uv run python main.py note <project> <source_ref> "[fail] <test_file>:<test_name> — <what's missing>"`
-      - Skip: `cd ~/newstack/gap-tracker && uv run python main.py note <project> <source_ref> "[skip-validation] <reason>"`
+      - Pass: `gapt note <project> <source_ref> "[pass] <test_file>:<test_name> — <what it proved>"`
+      - Fail: `gapt note <project> <source_ref> "[fail] <test_file>:<test_name> — <what's missing>"`
+      - Skip: `gapt note <project> <source_ref> "[skip-validation] <reason>"`
 
-   e. **What to do with the test file**:
+   e. **What to do with the test file** (depends on which worktree you're in):
+
+      **If working in a gap-tracking worktree** (e.g., `mcpkit/gaptrack`):
+      - Tests are **validation artifacts** — they prove the gap exists for filing tickets
+      - Leave failing tests as-is (no PENDING skip) — they're honest repros, not CI fixtures
+      - They stay in the gaptrack worktree and don't need to pass CI
+
+      **If working in the main development worktree** (e.g., `mcpkit/main`):
       - If the test **passed** (no gap): ask the user whether to keep it as regression coverage or discard it
       - If the test **failed** (gap confirmed): **keep the test, but mark it pending with a `PENDING:` skip as the FIRST statement of the test body**, so CI stays green until the gap is actually worked on. The un-skipped test is the repro; the skipped test is the searchable TODO that lives alongside the code.
 
@@ -106,15 +117,15 @@ The project name must match a subdirectory in `~/newstack/gap-tracker/` with a `
    Present the recommendation and ask the user to confirm.
 
 7. **Execute the chosen action**:
-   - **Link (existing)**: `cd ~/newstack/gap-tracker && uv run python main.py triage <project> set <source_ref> real-gap <existing#> "rationale"`
+   - **Link (existing)**: `gapt set <project> <source_ref> real-gap <existing#> "rationale"`
    - **Create + link**: Use `GH_TOKEN="$GH_PERSONAL_TOKEN" gh issue create --repo <target_repo>` — write the title and body **in our own words** describing the gap. If a failing test exists, mention the test file and what it demonstrates. **Never reference source repos, issue numbers, or copy text from upstream.**
 
      **Then**: edit the test file to add the `PENDING: gap repro for <target_repo>#<new_issue#>` skip as the first statement of the test body (step 5e), re-run the suite to confirm it now SKIPs, and finally:
 
-     `uv run python main.py triage <project> set <source_ref> real-gap <target_repo>#<new_issue#> "rationale" --test <path>::<TestName>`
-   - **Already implemented**: `uv run python main.py triage <project> set <source_ref> already-covered [target] "rationale" --test <path>::<TestName>`
-   - **Defer (spec moving)**: `uv run python main.py triage <project> set <source_ref> defer-spec-flux "rationale"`
-   - **Defer (out of scope)**: `uv run python main.py triage <project> set <source_ref> defer-scope "rationale"`
-   - **Not-applicable**: `uv run python main.py triage <project> set <source_ref> not-applicable "rationale"`
+     `gapt set <project> <source_ref> real-gap <target_repo>#<new_issue#> "rationale" --test <path>::<TestName>`
+   - **Already implemented**: `gapt set <project> <source_ref> already-covered [target] "rationale" --test <path>::<TestName>`
+   - **Defer (spec moving)**: `gapt set <project> <source_ref> defer-spec-flux "rationale"`
+   - **Defer (out of scope)**: `gapt set <project> <source_ref> defer-scope "rationale"`
+   - **Not-applicable**: `gapt set <project> <source_ref> not-applicable "rationale"`
 
-8. **Confirm**: Run `show <project> <source_ref>` to display the final state with notes and the triage row
+8. **Confirm**: Run `gapt show <project> <source_ref>` to display the final state with notes and the triage row

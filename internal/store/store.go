@@ -44,8 +44,13 @@ func (s *Store) DB() *gorm.DB { return s.db }
 
 // EnsureSchema runs the canonical DDL. Idempotent — every statement uses
 // CREATE TABLE IF NOT EXISTS so it's safe to call on every Open().
+// After DDL, rebuilds the FTS5 index to pick up any data written
+// before the FTS table existed (or while it was out of sync).
 func (s *Store) EnsureSchema() error {
-	return s.db.Exec(schemaSQL).Error
+	if err := s.db.Exec(schemaSQL).Error; err != nil {
+		return err
+	}
+	return s.RebuildFTS()
 }
 
 // Close releases the underlying database connection.

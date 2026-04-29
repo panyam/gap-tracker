@@ -1,6 +1,7 @@
 package store
 
 import (
+	"fmt"
 	"strings"
 
 	"github.com/panyam/gap-tracker/internal/github"
@@ -41,6 +42,10 @@ ON CONFLICT(repo, number) DO UPDATE SET
 			return count, result.Error
 		}
 		count++
+	}
+	// Rebuild FTS index after bulk upsert.
+	if err := s.RebuildFTS(); err != nil {
+		return count, fmt.Errorf("rebuild fts after sync: %w", err)
 	}
 	return count, nil
 }

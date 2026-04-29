@@ -61,10 +61,13 @@ func (s *Store) SetNotes(repo string, number int, notes []Note) error {
 	if err != nil {
 		return err
 	}
-	return s.db.Exec(
+	if err := s.db.Exec(
 		"UPDATE issues SET notes = ? WHERE repo = ? AND number = ?",
 		string(encoded), repo, number,
-	).Error
+	).Error; err != nil {
+		return err
+	}
+	return s.RebuildFTS()
 }
 
 // ListIssuesWithNotes returns every issue whose notes column is
