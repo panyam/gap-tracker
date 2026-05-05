@@ -18,6 +18,11 @@
     {
       "repo": "modelcontextprotocol/conformance",
       "label": "confo"
+    },
+    {
+      "repo": "modelcontextprotocol/experimental-ext-triggers-events",
+      "label": "events",
+      "include_prs": true
     }
   ]
 }
