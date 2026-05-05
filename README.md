@@ -25,6 +25,16 @@ The binary is pure Go (cgo-free, uses `glebarez/sqlite`), so installing
 produces a single static `gapt` executable in `$GOBIN` (typically
 `~/go/bin`).
 
+**After pulling source changes**, rerun `make install` — `gapt version`
+prints `v0.0.X-N-g<sha>` (the `-N` suffix is commits-since-tag) and
+`gapt sync` output formatting can change between revisions. A stale
+binary against newer config behavior produces silent miscompares (e.g.,
+`include_prs: true` ignored because the binary predates the flag's
+plumbing). No automatic check today — `make install` is the only
+guard. If sync output looks wrong (e.g., `0 issues` for a repo you
+know has a PR), check whether `stat $(which gapt)` is older than the
+source files you just pulled.
+
 ## Structure
 
 ```
