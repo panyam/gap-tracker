@@ -23,6 +23,11 @@
       "repo": "modelcontextprotocol/experimental-ext-triggers-events",
       "label": "events",
       "include_prs": true
+    },
+    {
+      "repo": "modelcontextprotocol/ext-auth",
+      "label": "ext-auth",
+      "include_prs": true
     }
   ]
 }
