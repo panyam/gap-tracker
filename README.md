@@ -9,6 +9,12 @@ already-covered capability, something to defer, or not applicable.
 The daily-driver CLI is `gapt` (Go). The original Python implementation in
 `main.py` is kept for reference until the Go port is retired.
 
+A sibling binary `disctrack` lives here too. It does deterministic lookups
+against a project's `.discord-tracking.yaml` (resolving names to channel
+ids, parsing Discord URLs, printing config) and is paired with the global
+discord-tracking Claude Code skills under `.claude/commands/`. See the
+[Discord-tracking skills](#discord-tracking-skills-claude-code) section.
+
 See [docs/STATE_MACHINE.md](docs/STATE_MACHINE.md) for the full state
 model and developer entry points — it's the design anchor for how
 classification flows through sync → triage → close.
@@ -17,13 +23,14 @@ classification flows through sync → triage → close.
 
 ```bash
 cd ~/newstack/gap-tracker
-make install        # go install ./cmd/gapt into $GOBIN
+make install        # builds both gapt and disctrack into $GOBIN
 gapt version
+disctrack version
 ```
 
-The binary is pure Go (cgo-free, uses `glebarez/sqlite`), so installing
-produces a single static `gapt` executable in `$GOBIN` (typically
-`~/go/bin`).
+`make install-gapt` and `make install-disctrack` install one at a time.
+Both are pure Go (cgo-free, uses `glebarez/sqlite`), producing static
+executables in `$GOBIN` (typically `~/go/bin`).
 
 **After pulling source changes**, rerun `make install` — `gapt version`
 prints `v0.0.X-N-g<sha>` (the `-N` suffix is commits-since-tag) and
@@ -39,8 +46,17 @@ source files you just pulled.
 
 ```
 gap-tracker/
-├── cmd/gapt/              # Go CLI entrypoint
-├── internal/              # Go packages: cli, store, render, github, triage, ...
+├── cmd/
+│   ├── gapt/              # gapt CLI entrypoint
+│   └── disctrack/         # disctrack CLI entrypoint
+├── internal/
+│   ├── cli/               # gapt cobra tree + helpers
+│   ├── store/render/github/triage/  # gapt internals
+│   ├── disctrack/         # resolver + manifest types
+│   └── disctrackcli/      # disctrack cobra tree
+├── .claude/
+│   ├── commands/          # globalized discord-tracking skills (symlinked into ~/.claude/commands/)
+│   └── discord-tracking-playbook.md  # resolver + config schema (symlinked into ~/.claude/)
 ├── docs/STATE_MACHINE.md  # design anchor: states, verbs, entry points
 ├── main.py                # legacy Python CLI (parity port source)
 ├── mcpkit/                # per-project data:
@@ -49,6 +65,38 @@ gap-tracker/
 │   └── triage.snapshot.yaml  # committed snapshot (generated via `gapt triage export`)
 └── Makefile               # build / install / test / tidy
 ```
+
+## Discord-tracking skills (Claude Code)
+
+The `.claude/commands/` directory holds four globalized slash commands:
+`channel-refresh`, `proposal-refresh`, `gap-update`, `area-refresh`. They
+work against any project that has a `.discord-tracking.yaml` (directly,
+or via a `discord_tracking` symlink to a sibling tracking repo). The
+`disctrack` binary backs them. The shared resolver/config spec lives at
+`.claude/discord-tracking-playbook.md`.
+
+These files only matter to Claude Code when symlinked into `~/.claude/`.
+On a fresh machine:
+
+```bash
+# 1. Get the repo + install the binary
+git clone <gap-tracker-remote> ~/newstack/gap-tracker
+cd ~/newstack/gap-tracker && make install
+
+# 2. Symlink the skills + playbook into ~/.claude/
+mkdir -p ~/.claude/commands
+for f in channel-refresh proposal-refresh gap-update area-refresh; do
+  ln -s "$HOME/newstack/gap-tracker/.claude/commands/${f}.md" \
+        "$HOME/.claude/commands/${f}.md"
+done
+ln -s "$HOME/newstack/gap-tracker/.claude/discord-tracking-playbook.md" \
+      "$HOME/.claude/discord-tracking-playbook.md"
+```
+
+Each tracked project then needs either a `.discord-tracking.yaml` at its
+repo root (when the project IS the tracking repo, like `mcpcontrib`) or a
+`discord_tracking -> ../<project>-tracking` symlink to a sibling tracking
+repo (like `lilbattle`). See the playbook for layout details.
 
 ## Config
 
