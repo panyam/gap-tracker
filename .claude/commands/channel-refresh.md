@@ -27,7 +27,7 @@ Other args:
 - `--window <duration>` (optional, default `1d`) — freshness lens for the "what's new" section. Accepts:
   - Shorthand: `1d`, `3d`, `1w`, `2w`, `12h`
   - Natural language: `"since monday"`, `"yesterday"`, `"last 3 days"`, `"since 2026-05-08"`
-  - Claude resolves the expression to an ISO 8601 timestamp before invoking `disctrack messages since --ts <iso>`. Git accepts the original expression directly via `--since`.
+  - Claude resolves the expression to an ISO 8601 timestamp before invoking `disctrack messages <channel> --since <iso>`. Git accepts the original expression directly via `--since`.
   - The window controls *only* the "Activity in window" highlight section. Cumulative state (channel position, code position, full gap registry) is synthesized from all available data plus the prior `CURRENT_GAPS.md`.
 - `--no-sync` (optional) — skip the `<sync_tool> sync` step. Used when a parent process has already pre-synced (e.g., the parallel sweep pattern below).
 - `--max-iters N` (optional) — passed through to `<sync_tool> sync`. Default 10.
@@ -89,13 +89,13 @@ Idempotent. Reports new / edits / duplicates and advances cursor. If `disctrack 
 ### 3. Gather deterministic context
 
 Resolve `--window` to two forms before this step:
-- `WINDOW_ISO`: an ISO 8601 timestamp (for `disctrack messages since --ts`). Compute relative to "now in UTC."
+- `WINDOW_ISO`: an ISO 8601 timestamp (for `disctrack messages <channel> --since <iso>`). Compute relative to "now in UTC."
 - `WINDOW_GIT`: the original expression passed straight to `git log --since="..."` (git parses natural language directly).
 
 Then gather, in parallel where possible:
 
-- **Window Discord messages.** `disctrack messages since <channel-name> --ts <WINDOW_ISO>` — drives the "Activity in window" section. disctrack handles name → channel_id resolution internally via the same `.discord-tracking.yaml` walk-up the resolver does.
-- **Cumulative Discord context.** `disctrack messages since <channel-name> --ts <BASELINE_ISO>` where `BASELINE_ISO` is ~6 weeks ago, or older if the area folder was last refreshed beyond that. Drives the cumulative channel-position synthesis.
+- **Window Discord messages.** `disctrack messages <channel-name> --since <WINDOW_ISO>` — drives the "Activity in window" section. disctrack handles name → channel_id resolution internally via the same `.discord-tracking.yaml` walk-up the resolver does. `--since` accepts either an ISO 8601 timestamp or a number-of-minutes shorthand (e.g. `--since 60` = last hour).
+- **Cumulative Discord context.** `disctrack messages <channel-name> --since <BASELINE_ISO>` where `BASELINE_ISO` is ~6 weeks ago, or older if the area folder was last refreshed beyond that. Drives the cumulative channel-position synthesis.
 - **gapt classification** (only if `gapt.enabled` in config). For each `spec_prs[]` entry in channel.yaml: `gapt show <gapt.project_id> <source>:<pr>`. If gapt has no source for the repo, surface as a finding ("gapt config gap").
 - **gapt status** (only if `gapt.enabled`). `gapt status <gapt.project_id> -o yaml | grep -A2 <relevant-source>`.
 - **Code-repo git activity (window).** `git -C <code.default_worktree> log --oneline --since="<WINDOW_GIT>" -- <paths-from-channel.yaml>` — drives the "Activity in window" section's code-side bullet.
