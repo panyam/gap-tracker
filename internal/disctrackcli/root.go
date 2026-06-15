@@ -1,16 +1,26 @@
 // Package disctrackcli is the cobra command tree for the disctrack binary.
 //
-// First cut covers resolver lookups only:
+// Subcommands:
 //
-//	disctrack config
-//	disctrack channel <name>           prints channel_id
-//	disctrack channels-dir             prints absolute channels directory
-//	disctrack area <name>              prints absolute area folder path
-//	disctrack areas-dir                prints absolute areas directory
-//	disctrack url <discord-url>        prints "<guild_id> <channel_id>"
+//	Resolver / config lookups:
+//	  disctrack config
+//	  disctrack channel <name>           prints channel_id
+//	  disctrack channels-dir             prints absolute channels directory
+//	  disctrack area <name>              prints absolute area folder path
+//	  disctrack areas-dir                prints absolute areas directory
+//	  disctrack url <discord-url>        prints "<guild_id> <channel_id>"
+//	  disctrack db-path                  prints <tracking-root>/messages.db
 //
-// Future cuts will add `disctrack sync`, `disctrack cursor`, etc. once the
-// Discord scraping migrates off mcpcontribd.
+//	Message-DB CRUD (ported from mcpcontribd):
+//	  disctrack messages since <channel-name-or-id> [--ts ISO]
+//	  disctrack cursor get <channel-name-or-id>
+//	  disctrack cursor set <channel-name-or-id> <value>
+//	  disctrack cursor list [channel-name-or-id]
+//	  disctrack ingest [--from-file path]
+//	  disctrack backup [--retain N]
+//
+// `disctrack sync` (Playwright orchestration) currently lives in mcpcontribd
+// and will migrate in a later cut.
 package disctrackcli
 
 import (
@@ -43,12 +53,21 @@ See ~/.claude/discord-tracking-playbook.md for the layout + config schema.`,
 // Execute is the binary entrypoint.
 func Execute() {
 	rootCmd.AddCommand(
+		// Resolver / config lookups
 		configCmd(),
 		channelCmd(),
 		channelsDirCmd(),
 		areaCmd(),
 		areasDirCmd(),
 		urlCmd(),
+		dbPathCmd(),
+
+		// Message-DB CRUD (ported from mcpcontribd)
+		messagesCmd(),
+		cursorCmd(),
+		ingestCmd(),
+		backupCmd(),
+
 		versionCmd(),
 	)
 	if err := rootCmd.Execute(); err != nil {
