@@ -3,7 +3,6 @@ package disctrackcli
 import (
 	"fmt"
 
-	"github.com/panyam/gap-tracker/internal/disctrack"
 	"github.com/spf13/cobra"
 )
 
@@ -15,7 +14,7 @@ func dbPathCmd() *cobra.Command {
 where disctrack will read/write its SQLite database, without re-implementing
 the resolver themselves.`,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			r, err := disctrack.Resolve()
+			r, err := resolveTracking()
 			if err != nil {
 				return err
 			}

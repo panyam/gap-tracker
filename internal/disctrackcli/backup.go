@@ -15,7 +15,7 @@ func backupCmd() *cobra.Command {
 		Use:   "backup",
 		Short: "Snapshot messages.db into <tracking-root>/backups/",
 		RunE: func(cmd *cobra.Command, args []string) error {
-			r, err := disctrack.Resolve()
+			r, err := resolveTracking()
 			if err != nil {
 				return err
 			}

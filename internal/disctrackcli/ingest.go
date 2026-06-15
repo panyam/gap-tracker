@@ -27,7 +27,7 @@ For each (channel_id, message_id):
 All work happens in a single transaction. Lookups are bulk pre-fetched
 per channel, so one SELECT covers an entire batch.`,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			r, err := disctrack.Resolve()
+			r, err := resolveTracking()
 			if err != nil {
 				return err
 			}

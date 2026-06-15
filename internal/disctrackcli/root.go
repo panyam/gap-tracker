@@ -1,5 +1,10 @@
 // Package disctrackcli is the cobra command tree for the disctrack binary.
 //
+// All subcommands that need a tracking root call resolveTracking(), which
+// honors the persistent -C / --root flag (start the resolver from a
+// specific directory instead of cwd). Useful for cron jobs and multi-project
+// scripts that can't rely on cwd.
+//
 // Subcommands:
 //
 //	Resolver / config lookups:
@@ -30,6 +35,7 @@ import (
 	"fmt"
 	"os"
 
+	"github.com/panyam/gap-tracker/internal/disctrack"
 	"github.com/spf13/cobra"
 )
 
@@ -41,6 +47,10 @@ var (
 	BuildDate = "unknown"
 )
 
+// rootDir is the -C / --root flag: when set, the resolver starts here
+// instead of cwd. Empty (default) falls back to cwd.
+var rootDir string
+
 var rootCmd = &cobra.Command{
 	Use:   "disctrack",
 	Short: "Discord-channel tracker — name lookups against .discord-tracking.yaml",
@@ -48,13 +58,26 @@ var rootCmd = &cobra.Command{
 Discord channels. Resolves the tracking root by walking up from cwd, looking
 for .discord-tracking.yaml or a discord_tracking symlink that points at one.
 
+Pass -C / --root <path> to start the walk somewhere other than cwd (useful
+for cron jobs and scripts that batch over multiple tracked projects).
+
 See ~/.claude/discord-tracking-playbook.md for the layout + config schema.`,
 	SilenceUsage:  true,
 	SilenceErrors: true,
 }
 
+// resolveTracking is the canonical way subcommands obtain a *Resolved. It
+// honors the persistent -C / --root flag.
+func resolveTracking() (*disctrack.Resolved, error) {
+	if rootDir != "" {
+		return disctrack.ResolveFrom(rootDir)
+	}
+	return disctrack.Resolve()
+}
+
 // Execute is the binary entrypoint.
 func Execute() {
+	rootCmd.PersistentFlags().StringVarP(&rootDir, "root", "C", "", "Start the resolver here instead of cwd (path to a tracking root or a project with discord_tracking)")
 	rootCmd.AddCommand(
 		// Resolver / config lookups
 		configCmd(),

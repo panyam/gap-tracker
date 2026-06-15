@@ -4,7 +4,6 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/panyam/gap-tracker/internal/disctrack"
 	"github.com/spf13/cobra"
 )
 
@@ -14,7 +13,7 @@ func channelCmd() *cobra.Command {
 		Short: "Print the channel_id from <channels-dir>/<name>.yaml",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			r, err := disctrack.Resolve()
+			r, err := resolveTracking()
 			if err != nil {
 				return err
 			}
@@ -44,7 +43,7 @@ func channelsDirCmd() *cobra.Command {
 		Use:   "channels-dir",
 		Short: "Print the absolute channels directory path",
 		RunE: func(cmd *cobra.Command, args []string) error {
-			r, err := disctrack.Resolve()
+			r, err := resolveTracking()
 			if err != nil {
 				return err
 			}

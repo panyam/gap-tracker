@@ -23,7 +23,7 @@ func cursorGetCmd() *cobra.Command {
 		Short: "Get the Discord cursor for a channel",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			r, err := disctrack.Resolve()
+			r, err := resolveTracking()
 			if err != nil {
 				return err
 			}
@@ -52,7 +52,7 @@ func cursorSetCmd() *cobra.Command {
 		Short: "Set the Discord cursor for a channel",
 		Args:  cobra.ExactArgs(2),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			r, err := disctrack.Resolve()
+			r, err := resolveTracking()
 			if err != nil {
 				return err
 			}
@@ -79,7 +79,7 @@ func cursorListCmd() *cobra.Command {
 		Short: "List cursors, optionally filtered to one channel",
 		Args:  cobra.MaximumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			r, err := disctrack.Resolve()
+			r, err := resolveTracking()
 			if err != nil {
 				return err
 			}

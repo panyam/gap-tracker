@@ -3,7 +3,6 @@ package disctrackcli
 import (
 	"fmt"
 
-	"github.com/panyam/gap-tracker/internal/disctrack"
 	"github.com/spf13/cobra"
 )
 
@@ -12,7 +11,7 @@ func configCmd() *cobra.Command {
 		Use:   "config",
 		Short: "Print the resolved tracking root and key config fields",
 		RunE: func(cmd *cobra.Command, args []string) error {
-			r, err := disctrack.Resolve()
+			r, err := resolveTracking()
 			if err != nil {
 				return err
 			}

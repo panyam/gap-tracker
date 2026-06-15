@@ -44,7 +44,7 @@ The browser launches headed by default so an expired login is visible. Pass
 --headless once the profile is known-good.`,
 		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			r, err := disctrack.Resolve()
+			r, err := resolveTracking()
 			if err != nil {
 				return err
 			}

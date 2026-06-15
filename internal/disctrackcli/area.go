@@ -5,7 +5,6 @@ import (
 	"os"
 	"strings"
 
-	"github.com/panyam/gap-tracker/internal/disctrack"
 	"github.com/spf13/cobra"
 )
 
@@ -15,7 +14,7 @@ func areaCmd() *cobra.Command {
 		Short: "Print the absolute area folder path (must exist)",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			r, err := disctrack.Resolve()
+			r, err := resolveTracking()
 			if err != nil {
 				return err
 			}
@@ -40,7 +39,7 @@ func areasDirCmd() *cobra.Command {
 		Use:   "areas-dir",
 		Short: "Print the absolute areas directory path",
 		RunE: func(cmd *cobra.Command, args []string) error {
-			r, err := disctrack.Resolve()
+			r, err := resolveTracking()
 			if err != nil {
 				return err
 			}

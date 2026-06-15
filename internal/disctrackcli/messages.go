@@ -32,7 +32,7 @@ is treated as an ID, otherwise looked up via the resolver's channels dir.
 Omit --ts to fetch every synced message for the channel.`,
 		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			r, err := disctrack.Resolve()
+			r, err := resolveTracking()
 			if err != nil {
 				return err
 			}
