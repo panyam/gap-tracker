@@ -30,9 +30,11 @@ GAPT_LDFLAGS := -X github.com/panyam/gap-tracker/internal/cli.Version=$(VERSION)
                 -X github.com/panyam/gap-tracker/internal/cli.Commit=$(COMMIT) \
                 -X github.com/panyam/gap-tracker/internal/cli.BuildDate=$(BUILD_DATE)
 
+DT_SNAPSHOT  := $(abspath python/snapshot.py)
 DT_LDFLAGS   := -X github.com/panyam/gap-tracker/internal/disctrackcli.Version=$(VERSION) \
                 -X github.com/panyam/gap-tracker/internal/disctrackcli.Commit=$(COMMIT) \
-                -X github.com/panyam/gap-tracker/internal/disctrackcli.BuildDate=$(BUILD_DATE)
+                -X github.com/panyam/gap-tracker/internal/disctrackcli.BuildDate=$(BUILD_DATE) \
+                -X github.com/panyam/gap-tracker/internal/disctrack.DefaultSnapshotScript=$(DT_SNAPSHOT)
 
 .PHONY: all build install test tidy fmt vet clean smoke help \
         build-gapt build-disctrack install-gapt install-disctrack smoke-gapt smoke-disctrack

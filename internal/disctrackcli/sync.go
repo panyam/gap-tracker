@@ -1,30 +1,47 @@
 package disctrackcli
 
 import (
+	"encoding/json"
 	"fmt"
-	"os"
-	"os/exec"
-	"strconv"
 
 	"github.com/panyam/gap-tracker/internal/disctrack"
 	"github.com/spf13/cobra"
 )
 
-var syncMaxIters int
+var (
+	syncSince          string
+	syncMaxIters       int
+	syncNoBackup       bool
+	syncDryRun         bool
+	syncHeadless       bool
+	syncProfile        string
+	syncProfileDir     string
+	syncScriptOverride string
+)
 
 func syncCmd() *cobra.Command {
 	c := &cobra.Command{
 		Use:   "sync <channel-name-or-id>",
-		Short: "Scrape new Discord messages for a channel into the local DB",
-		Long: `Resolves the channel name → channel_id and invokes the configured
-sync_tool (default mcpcontribd) to do the actual Playwright-driven scrape.
+		Short: "Sync a Discord channel into the local DB (drives snapshot.py)",
+		Long: `disctrack sync is the end-to-end scrape verb. It reads the channel
+cursor from the local DB (or honors --since), spawns the Playwright scraper
+(default: python/snapshot.py from this repo), ingests the resulting JSONL
+into the messages table, and advances the cursor on success.
 
-This is a thin orchestration wrapper: disctrack owns name resolution and DB
-location, the sync_tool owns the browser session and message scraping. In a
-later cut, disctrack will absorb the scrape orchestration directly and the
-sync_tool indirection goes away.
+snapshot.py path resolution (first hit wins):
+  1. --script <path>
+  2. discord.snapshot_script in .discord-tracking.yaml
+  3. ldflag-baked default (set by 'make install-disctrack')
+  4. python/snapshot.py relative to cwd
 
-Exit code and stdout/stderr from the sync_tool are passed through.`,
+profile_dir resolution (the Chromium user-data-dir that holds the Discord
+login session):
+  1. --profile-dir <path>
+  2. discord.profile_dir in .discord-tracking.yaml
+  3. <tracking-root>/profiles/default (auto-created)
+
+The browser launches headed by default so an expired login is visible. Pass
+--headless once the profile is known-good.`,
 		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			r, err := disctrack.Resolve()
@@ -35,27 +52,32 @@ Exit code and stdout/stderr from the sync_tool are passed through.`,
 			if err != nil {
 				return err
 			}
-			tool := r.Config.SyncTool.Command
-			if tool == "" {
-				tool = "mcpcontribd"
+			opts := disctrack.SyncOptions{
+				Channel:    *spec,
+				Since:      syncSince,
+				MaxIters:   syncMaxIters,
+				NoBackup:   syncNoBackup,
+				DryRun:     syncDryRun,
+				Headless:   syncHeadless,
+				Profile:    syncProfile,
+				ProfileDir: syncProfileDir,
 			}
-			binArgs := []string{"sync", spec.ChannelID}
-			if syncMaxIters > 0 {
-				binArgs = append(binArgs, "--max-iters", strconv.Itoa(syncMaxIters))
+			result, err := r.Sync(opts, syncScriptOverride)
+			if err != nil {
+				return err
 			}
-			c := exec.Command(tool, binArgs...)
-			c.Stdout = os.Stdout
-			c.Stderr = os.Stderr
-			c.Stdin = os.Stdin
-			if err := c.Run(); err != nil {
-				if exitErr, ok := err.(*exec.ExitError); ok {
-					os.Exit(exitErr.ExitCode())
-				}
-				return fmt.Errorf("run %s sync: %w", tool, err)
-			}
+			b, _ := json.Marshal(result)
+			fmt.Println(string(b))
 			return nil
 		},
 	}
-	c.Flags().IntVar(&syncMaxIters, "max-iters", 0, "Max scroll iterations; passed through to sync_tool (0 = tool default)")
+	c.Flags().StringVar(&syncSince, "since", "", "ISO8601 cursor override; otherwise read from DB")
+	c.Flags().IntVar(&syncMaxIters, "max-iters", 0, "Max scroll iterations (0 = snapshot.py default)")
+	c.Flags().BoolVar(&syncNoBackup, "no-backup", false, "Skip pre-sync DB snapshot")
+	c.Flags().BoolVar(&syncDryRun, "dry-run", false, "Run snapshot but don't write to DB")
+	c.Flags().BoolVar(&syncHeadless, "headless", false, "Run Chromium without a visible window")
+	c.Flags().StringVar(&syncProfile, "profile", "", "Named profile under the snapshot.py-side default base (snapshot.py interprets)")
+	c.Flags().StringVar(&syncProfileDir, "profile-dir", "", "Explicit Chromium user-data-dir (overrides config + --profile)")
+	c.Flags().StringVar(&syncScriptOverride, "script", "", "Override the snapshot.py path (debug)")
 	return c
 }

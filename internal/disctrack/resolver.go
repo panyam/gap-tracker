@@ -31,9 +31,26 @@ type Config struct {
 }
 
 type DiscordSection struct {
-	GuildID             string `yaml:"guild_id"`
+	GuildID string `yaml:"guild_id"`
+
+	// SnapshotScript is the absolute path to the Playwright scraper. disctrack
+	// sync invokes it as `uv run <SnapshotScript>`. When empty, falls back to
+	// the value baked in at build time (Makefile -ldflags) and finally to
+	// "python/snapshot.py" relative to cwd.
+	SnapshotScript string `yaml:"snapshot_script"`
+
+	// ProfileDir is the Chromium user-data-dir to launch Playwright against.
+	// When empty, disctrack defaults to <tracking-root>/profiles/default and
+	// auto-creates it. mcpcontrib points this at its historical login profile
+	// so the existing session keeps working.
+	ProfileDir string `yaml:"profile_dir"`
+
+	// ParseSnapshotScript is a legacy alias used by /area-refresh's older
+	// Playwright path. Distinct from SnapshotScript above. Kept so the old
+	// skill keeps resolving without an .discord-tracking.yaml rewrite.
 	ParseSnapshotScript string `yaml:"parse_snapshot_script"`
-	SetupDoc            string `yaml:"setup_doc"`
+
+	SetupDoc string `yaml:"setup_doc"`
 }
 
 type CodeSection struct {

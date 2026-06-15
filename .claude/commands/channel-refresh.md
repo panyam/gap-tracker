@@ -78,13 +78,13 @@ After bootstrap (or with an existing manifest), determine area folder: explicit 
 
 ### 2. Sync (unless `--no-sync`)
 
-Pass the **channel_id** (already in hand from Step 1's `disctrack channel <name>` call) to `<sync_tool>`. Don't pass the user-typed name through — `<sync_tool>` (typically `mcpcontribd`) resolves names by looking for `discord/channels/<name>.yaml` relative to cwd, which only works inside mcpcontrib's own layout. The channel_id works from any cwd.
+`disctrack sync` owns the scrape end-to-end. It reads the cursor from the local DB, drives Playwright via `snapshot.py`, ingests the resulting JSONL into the messages table, and advances the cursor. The skill (and thus the LLM) does not orchestrate Playwright — pass the channel name and let disctrack do everything.
 
 ```
-<sync_tool> sync <channel-id> --max-iters <N>
+disctrack sync <channel-name> --max-iters <N>
 ```
 
-Idempotent. Reports new / edits / duplicates and advances cursor. (`messages-since` queries in Step 3 use `disctrack messages since <name>` directly; only the scrape itself goes through `<sync_tool>`.)
+Idempotent. Reports new / edits / duplicates and advances cursor. If `disctrack sync` fails with a Playwright login error, the user needs to re-authenticate the configured `discord.profile_dir` (see `disctrack config` for its location).
 
 ### 3. Gather deterministic context
 
