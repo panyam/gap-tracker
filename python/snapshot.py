@@ -152,7 +152,7 @@ async def main_async(args) -> int:
 
     channel_url = f"https://discord.com/channels/{args.server_id}/{args.channel}"
     log(f"navigating to {channel_url}")
-    log(f"profile: {args.profile or 'default (from $MCPCONTRIB_PROFILE or fallback)'}")
+    log(f"profile: {args.profile or 'default (from $DISCTRACK_PROFILE or fallback)'}")
     log(f"profile dir: {profile_dir}")
 
     async with async_playwright() as p:
@@ -285,8 +285,8 @@ def main() -> None:
     parser.add_argument(
         "--profile",
         default=None,
-        help="Named profile under discord/profiles/<name>/. Falls back to "
-        "$MCPCONTRIB_PROFILE then 'default'.",
+        help="Named profile resolved under ~/.local/share/disctrack/profiles/<name>/. "
+        "Falls back to $DISCTRACK_PROFILE then 'default'.",
     )
     parser.add_argument(
         "--profile-dir",
