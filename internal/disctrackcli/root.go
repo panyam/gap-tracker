@@ -49,8 +49,14 @@ var (
 )
 
 // rootDir is the -C / --root flag: when set, the resolver starts here
-// instead of cwd. Empty (default) falls back to cwd.
+// instead of cwd. Empty (default) falls back to cwd + $DISCTRACK_ROOT.
 var rootDir string
+
+// EnvVarRoot is the env var consulted as a last-resort fallback when the
+// cwd-based resolver can't find a tracking root. Useful for code repos
+// (e.g. mcpkit worktrees) where adding a discord_tracking symlink in every
+// worktree is annoying.
+const EnvVarRoot = "DISCTRACK_ROOT"
 
 var rootCmd = &cobra.Command{
 	Use:   "disctrack",
@@ -62,18 +68,37 @@ for .discord-tracking.yaml or a discord_tracking symlink that points at one.
 Pass -C / --root <path> to start the walk somewhere other than cwd (useful
 for cron jobs and scripts that batch over multiple tracked projects).
 
+When neither -C nor a cwd-based resolution succeeds, $DISCTRACK_ROOT is
+consulted as a fallback. Set it in your shell rc to attach a default
+tracking root for any cwd that doesn't have its own.
+
 See ~/.claude/discord-tracking-playbook.md for the layout + config schema.`,
 	SilenceUsage:  true,
 	SilenceErrors: true,
 }
 
-// resolveTracking is the canonical way subcommands obtain a *Resolved. It
-// honors the persistent -C / --root flag.
+// resolveTracking is the canonical way subcommands obtain a *Resolved.
+//
+// Precedence:
+//  1. -C / --root <path> flag
+//  2. cwd-based walk (.discord-tracking.yaml or discord_tracking symlink at
+//     this or any ancestor directory)
+//  3. $DISCTRACK_ROOT env var as a final fallback
+//
+// The env var skips the cwd walk only when it has already failed, so
+// being inside a tracked project still wins.
 func resolveTracking() (*disctrack.Resolved, error) {
 	if rootDir != "" {
 		return disctrack.ResolveFrom(rootDir)
 	}
-	return disctrack.Resolve()
+	r, err := disctrack.Resolve()
+	if err == nil {
+		return r, nil
+	}
+	if envRoot := os.Getenv(EnvVarRoot); envRoot != "" {
+		return disctrack.ResolveFrom(envRoot)
+	}
+	return nil, err
 }
 
 // Execute is the binary entrypoint.
