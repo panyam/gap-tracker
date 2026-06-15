@@ -6,17 +6,17 @@ import (
 	"gorm.io/gorm"
 )
 
-// MessageView is the shape returned by `disctrack messages since`. URLs is
-// decoded back from the JSON-encoded string stored in the messages table.
+// MessageView is the shape returned by `disctrack messages`. URLs is decoded
+// back from the JSON-encoded string stored in the messages table.
 type MessageView struct {
-	ChannelID    string   `json:"channel_id"`
-	MessageID    string   `json:"message_id"`
-	TS           string   `json:"ts"`
-	Author       string   `json:"author"`
-	Content      string   `json:"content"`
-	URLs         []string `json:"urls"`
-	ReplyTo      string   `json:"reply_to,omitempty"`
-	LastEditedAt string   `json:"last_edited_at,omitempty"`
+	ChannelID    string   `json:"channel_id" yaml:"channel_id"`
+	MessageID    string   `json:"message_id" yaml:"message_id"`
+	TS           string   `json:"ts" yaml:"ts"`
+	Author       string   `json:"author" yaml:"author"`
+	Content      string   `json:"content" yaml:"content"`
+	URLs         []string `json:"urls" yaml:"urls"`
+	ReplyTo      string   `json:"reply_to,omitempty" yaml:"reply_to,omitempty"`
+	LastEditedAt string   `json:"last_edited_at,omitempty" yaml:"last_edited_at,omitempty"`
 }
 
 // MessagesSince returns messages for channelID strictly newer than sinceTS,
