@@ -1,8 +1,12 @@
-Refresh a single Discord channel: sync to local DB, gather context from gapt + code repo + area docs, synthesize a current-gaps view, write `CURRENT_GAPS.md` in the area folder. Does NOT file issues. Does NOT modify README.
+Refresh a single Discord channel: read messages from the local DB, gather context from gapt + code repo + area docs, synthesize a current-gaps view, write `CURRENT_GAPS.md` in the area folder.
+
+**This skill is analysis-only — it never drives the browser.** Run `disctrack sync <name>` separately when you want fresh messages; this verb just reads what's already in the DB and synthesizes from it. The staleness warning that `disctrack messages` prints to stderr will surface if the DB hasn't caught up to your requested window.
+
+Does NOT file issues. Does NOT modify README. Does NOT scrape Discord.
 
 ## Configuration
 
-First, resolve the tracking root and load `<tracking-root>/.discord-tracking.yaml`. See `~/.claude/discord-tracking-playbook.md` for the resolver and config schema. Throughout this skill, placeholders like `<channels-dir>`, `<areas-dir>`, `<code.name>`, `<code.default_worktree>`, `<sync_tool>`, `<gapt.project_id>` refer to values from that config.
+First, resolve the tracking root and load `<tracking-root>/.discord-tracking.yaml`. See `~/.claude/discord-tracking-playbook.md` for the resolver and config schema. Throughout this skill, placeholders like `<channels-dir>`, `<areas-dir>`, `<code.name>`, `<code.default_worktree>`, `<gapt.project_id>` refer to values from that config.
 
 The `disctrack` Go binary (`~/newstack/gap-tracker/cmd/disctrack`, installed via `make install-disctrack`) does the resolution and lookups deterministically. Use it instead of manually walking the symlink:
 
@@ -16,12 +20,12 @@ If `disctrack config` fails (no `.discord-tracking.yaml` reachable from cwd), ba
 
 ## Arguments
 
-`$ARGUMENTS` — `<channel-name> [<discord-url>] [--window <duration>] [--no-sync] [--max-iters N]`
+`$ARGUMENTS` — `<channel-name> [<discord-url>] [--window <duration>]`
 
 Two invocation forms:
 
 1. **Subsequent (manifest exists)** — `/channel-refresh <channel-name>`. The skill resolves the name to a channel_id via `disctrack channel <name>`.
-2. **First time (bootstrap)** — `/channel-refresh <channel-name> <discord-url>`. The first positional is the name to register; the second is a Discord channel URL (e.g. `https://discord.com/channels/931580580255125514/1116447544269082676`). The skill parses the URL via `disctrack url`, writes a minimum `<channels-dir>/<channel-name>.yaml` stub, then runs the normal flow against the new manifest (cold sync, baseline-window pull). A raw channel_id (all digits) is accepted as a second arg for back-compat but URL is preferred — it carries both guild + channel and is copy-pasted directly from Discord.
+2. **First time (bootstrap)** — `/channel-refresh <channel-name> <discord-url>`. The first positional is the name to register; the second is a Discord channel URL (e.g. `https://discord.com/channels/931580580255125514/1116447544269082676`). The skill parses the URL via `disctrack url`, writes a minimum `<channels-dir>/<channel-name>.yaml` stub and the area folder, then bails with an instruction to run `disctrack sync <name>` first. A raw channel_id (all digits) is accepted as a second arg for back-compat but URL is preferred — it carries both guild + channel and is copy-pasted directly from Discord.
 
 Other args:
 - `--window <duration>` (optional, default `1d`) — freshness lens for the "what's new" section. Accepts:
@@ -29,8 +33,8 @@ Other args:
   - Natural language: `"since monday"`, `"yesterday"`, `"last 3 days"`, `"since 2026-05-08"`
   - Claude resolves the expression to an ISO 8601 timestamp before invoking `disctrack messages <channel> --since <iso>`. Git accepts the original expression directly via `--since`.
   - The window controls *only* the "Activity in window" highlight section. Cumulative state (channel position, code position, full gap registry) is synthesized from all available data plus the prior `CURRENT_GAPS.md`.
-- `--no-sync` (optional) — skip the `<sync_tool> sync` step. Used when a parent process has already pre-synced (e.g., the parallel sweep pattern below).
-- `--max-iters N` (optional) — passed through to `<sync_tool> sync`. Default 10.
+
+If the user wanted fresh data, they should have run `disctrack sync <channel-name>` before invoking this skill. This skill never spawns the Playwright scraper.
 
 ## Output
 
@@ -80,17 +84,18 @@ Then determine the area folder. If `<areas-dir>/<name>/` doesn't exist, create i
 
 After bootstrap (or with an existing manifest), determine area folder: explicit `area_folder` (legacy: `proposal_folder`) field in channel.yaml, or `<areas-dir>/<channel-name>/`. Use `disctrack area <slug>` to verify the folder exists (exit 1 with did-you-mean if it doesn't). **If the folder doesn't exist and we didn't just bootstrap it**, bail with disctrack's error.
 
-### 2. Sync (unless `--no-sync`)
-
-`disctrack sync` owns the scrape end-to-end. It reads the cursor from the local DB, drives Playwright via `snapshot.py`, ingests the resulting JSONL into the messages table, and advances the cursor. The skill (and thus the LLM) does not orchestrate Playwright — pass the channel name and let disctrack do everything.
+**If we just bootstrapped (newly-written channel.yaml and/or fresh area folder)**: do NOT proceed to synthesis. The local DB has no data for this channel yet. Print a clear message:
 
 ```
-disctrack sync <channel-name> --max-iters <N>
+bootstrap complete:
+  channel manifest:  <channels-dir>/<name>.yaml
+  area folder:       <areas-dir>/<name>/
+next step: run `disctrack sync <name>` to populate the DB, then re-run /channel-refresh <name>.
 ```
 
-Idempotent. Reports new / edits / duplicates and advances cursor. If `disctrack sync` fails with a Playwright login error, the user needs to re-authenticate the configured `discord.profile_dir` (see `disctrack config` for its location).
+Then exit. The synthesis steps below only make sense once `disctrack sync` has been run at least once for this channel.
 
-### 3. Gather deterministic context
+### 2. Gather deterministic context
 
 Resolve `--window` to two forms before this step:
 - `WINDOW_ISO`: an ISO 8601 timestamp (for `disctrack messages <channel> --since <iso>`). Compute relative to "now in UTC."
@@ -111,7 +116,7 @@ Then gather, in parallel where possible:
   - **Don't re-propose what's already tracked.** Before drafting any new Discussing or Finalized entries, scan all sections for subject overlap. If a candidate gap looks substantially the same as an existing tracked one (same SEP/feature/decision), skip it. If ambiguous, surface in "Notes for next refresh" rather than re-proposing.
   - **Stable IDs.** Read existing gap IDs in the file. When moving an existing gap between sections (e.g., the user promoted G3 from Discussing → Finalized), preserve `G3`. New gaps get `G<max-existing + 1>`. IDs never decrement and never collide.
 
-### 4. Synthesize CURRENT_GAPS.md
+### 3. Synthesize CURRENT_GAPS.md
 
 **Frame**: a "gap" is a **delta between (channel/spec) and (`<code.name>`)** — places where upstream and our implementation are out of sync. Things that don't fit that frame go elsewhere:
 
@@ -218,37 +223,41 @@ Anything the user should think about by next invocation. Stale Pending items (op
 
 **No paste-prompt blocks.** Don't include `**Evaluate prompt**` blocks. The slim shape is meant to be read, not pasted. When a gap is ripe enough to need a fresh session for grunt-work, the human files an issue and the issue body carries the work into that session.
 
-### 5. Write the file
+### 4. Write the file
 
 Write to `<areas-dir>/<folder>/CURRENT_GAPS.md`. Overwrite any existing file. Preserve `Ticketed` and `Closed` sections by reading them from the prior file first.
 
-### 6. Print a summary
+### 5. Print a summary
 
 To stdout (not to the file):
 
 ```
 channel-refresh: <channel-name>
-  synced: <N new, M edits, K duplicates> [or "--no-sync"]
+  messages read: <N> (since <window>) [+ <S> staleness warning if applicable]
   gaps: <D discussing, F finalized, T ticketed, C closed>
-  README stale: <S findings>
+  README stale: <R findings>
   written: <areas-dir>/<folder>/CURRENT_GAPS.md
 ```
+
+If `disctrack messages` emitted a staleness warning to stderr (cursor far older than the requested window), surface it inline so the user knows whether to run `disctrack sync` and re-invoke.
 
 ## Parallel sweep pattern
 
 When the user wants to refresh multiple channels:
 
 ```bash
-# Step 1: pre-sync sequentially (Playwright profile is single-tenant)
+# Step 1: pre-sync sequentially (Playwright profile is single-tenant).
+# Skip this if the local DB is already current.
 for ch in <ch1> <ch2> <ch3>; do
-  <sync_tool> sync "$ch"
+  disctrack sync "$ch"
 done
 
-# Step 2: fan out the synthesis (parallel-safe — no shared state)
-# In Claude: spawn N subagents, each running /channel-refresh <ch> --no-sync
+# Step 2: fan out the synthesis (parallel-safe — no shared state, no
+# browser, just DB reads + synthesis).
+# In Claude: spawn N subagents, each running /channel-refresh <ch>
 ```
 
-The skill itself is single-channel and stateless across invocations — the parent loop or subagent fan-out provides the orchestration.
+The skill itself is single-channel and stateless across invocations — the parent loop or subagent fan-out provides the orchestration. `/channel-refresh` never touches the browser, so it's safe to fan out without worrying about Playwright profile contention.
 
 ## Style notes
 
@@ -260,7 +269,7 @@ The skill itself is single-channel and stateless across invocations — the pare
 
 ## Gotchas
 
-- **Sync needs a logged-in Discord profile.** If `<sync_tool> sync` returns "no messages rendered," the profile auth expired. If `discord.setup_doc` is set in config, point the user at it; otherwise tell them to re-auth their `<sync_tool>` profile.
+- **Sync is a separate user step.** This skill never invokes `disctrack sync` and never opens the browser. If the user wanted fresh data they should have synced before calling /channel-refresh. The staleness warning in step 5's summary tells them when to re-sync.
 - **Area folder may not match channel name 1:1.** Example: channel `auth-wg-fine-grained-authz` → area folder `fine-grained-auth`. Use the `area_folder:` (legacy: `proposal_folder:`) field in channel.yaml when they differ.
 - **gapt config gap.** If `gapt.enabled` is true but `gapt show <gapt.project_id> <repo>:<pr>` errors because gapt has no source for `<repo>`, surface as a finding under "Notes for next refresh" rather than failing. Tell the user how to add the source.
 - **CURRENT_GAPS.md is the only artifact this skill writes.** Don't touch README, don't write state.md, don't create issues. Those are separate, deliberate user actions.
