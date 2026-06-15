@@ -33,7 +33,7 @@ from _profile import resolve_profile_dir, ensure_profile_dir
 from playwright.async_api import async_playwright
 
 DEFAULT_MAX_ITERS = 10
-SCROLL_WAIT_MS = 800
+SCROLL_WAIT_MS = 2000
 RENDER_TIMEOUT_MS = 60000
 
 
@@ -256,13 +256,15 @@ async def main_async(args) -> int:
                           el.scrollHeight > el.clientHeight;
                         if (isScroll) {
                           const before = el.scrollTop;
+                          const heightBefore = el.scrollHeight;
                           const step = Math.max(el.clientHeight * 2, 1500);
                           el.scrollTop = Math.max(0, before - step);
                           return {
                             ok: true,
                             before,
                             after: el.scrollTop,
-                            height: el.clientHeight,
+                            clientHeight: el.clientHeight,
+                            heightBefore,
                             step,
                           };
                         }
@@ -276,6 +278,37 @@ async def main_async(args) -> int:
                     log(f"  scroll failed: {scroll_result['error']}; stopping")
                     break
                 await page.wait_for_timeout(SCROLL_WAIT_MS)
+                # Check whether Discord actually lazy-loaded more history by
+                # comparing scrollHeight before vs after the wait. Growing
+                # scrollHeight = older messages were prepended into the DOM.
+                # Unchanged at scrollTop=0 = real top of channel.
+                post_scroll = await page.evaluate(
+                    """
+                    () => {
+                      const msg = document.querySelector('li[id^="chat-messages-"]');
+                      if (!msg) return null;
+                      let el = msg.parentElement;
+                      while (el && el !== document.body) {
+                        const s = window.getComputedStyle(el);
+                        if ((s.overflowY === 'auto' || s.overflowY === 'scroll') && el.scrollHeight > el.clientHeight) {
+                          return { scrollTop: el.scrollTop, scrollHeight: el.scrollHeight };
+                        }
+                        el = el.parentElement;
+                      }
+                      return null;
+                    }
+                    """
+                )
+                height_after = (
+                    f"{post_scroll['scrollHeight']:.0f}" if post_scroll else "N/A"
+                )
+                log(
+                    f"    scroll: before={scroll_result['before']:.0f} "
+                    f"after={scroll_result['after']:.0f} "
+                    f"height_before={scroll_result['heightBefore']:.0f} "
+                    f"height_after={height_after} "
+                    f"viewport={scroll_result['clientHeight']:.0f}"
+                )
 
             summary = {
                 "iterations": iter_count,
