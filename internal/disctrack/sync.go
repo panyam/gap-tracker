@@ -64,21 +64,28 @@ func (r *Resolved) Sync(opts SyncOptions, scriptOverride string) (SyncResult, er
 		area = opts.Channel.ChannelID
 	}
 
+	// Read the existing cursor up front for the advance-only-if-newer check
+	// below. Separate from `since` so a --since override (a re-pull window)
+	// can't regress the cursor when newest < currentCursor.
+	var currentCursor string
+	var c Cursor
+	switch err := db.Where("source_type = ? AND source_key = ?", SourceTypeDiscord, opts.Channel.ChannelID).First(&c).Error; {
+	case errors.Is(err, gorm.ErrRecordNotFound):
+		// cold start
+	case err != nil:
+		return SyncResult{}, fmt.Errorf("read cursor: %w", err)
+	default:
+		currentCursor = c.CursorValue
+	}
+
 	since := opts.Since
 	if since == "" {
-		var c Cursor
-		err := db.Where("source_type = ? AND source_key = ?", SourceTypeDiscord, opts.Channel.ChannelID).First(&c).Error
-		switch {
-		case errors.Is(err, gorm.ErrRecordNotFound):
-			// cold start; since stays empty
-		case err != nil:
-			return SyncResult{}, fmt.Errorf("read cursor: %w", err)
-		default:
-			since = c.CursorValue
+		since = currentCursor
+		if since != "" {
 			fmt.Fprintf(os.Stderr, "cursor: %s (last updated %s)\n", c.CursorValue, c.UpdatedAt)
 		}
 	} else {
-		fmt.Fprintf(os.Stderr, "using --since override: %s\n", since)
+		fmt.Fprintf(os.Stderr, "using --since override: %s (cursor stays at %s)\n", since, valueOrNone(currentCursor))
 	}
 	if since == "" {
 		fmt.Fprintln(os.Stderr, "no cursor found; cold start")
@@ -119,11 +126,15 @@ func (r *Resolved) Sync(opts SyncOptions, scriptOverride string) (SyncResult, er
 		return SyncResult{}, err
 	}
 
-	if !opts.DryRun && newest != "" && newest > since {
+	// Advance only when we genuinely went past the existing cursor. Re-pulls
+	// with --since (which may be older than currentCursor) must not regress.
+	if !opts.DryRun && newest != "" && newest > currentCursor {
 		if err := SetDiscordCursor(db, opts.Channel.ChannelID, opts.Channel.Name, newest); err != nil {
 			return SyncResult{}, fmt.Errorf("advance cursor: %w", err)
 		}
 		fmt.Fprintf(os.Stderr, "cursor advanced: discord/%s → %s\n", opts.Channel.ChannelID, newest)
+	} else if newest != "" && currentCursor != "" && newest <= currentCursor {
+		fmt.Fprintf(os.Stderr, "cursor unchanged at %s (re-pull only; newest seen: %s)\n", currentCursor, newest)
 	}
 
 	return SyncResult{
@@ -230,6 +241,16 @@ func countJSONL(r io.Reader) (IngestStats, error) {
 			stats.NewestTS = m.TS
 		}
 	}
+}
+
+// valueOrNone returns the input or the string "none" when empty. Used in
+// stderr logs so the cursor display reads "(cursor stays at none)" instead
+// of trailing whitespace on a cold-start re-pull.
+func valueOrNone(s string) string {
+	if s == "" {
+		return "none"
+	}
+	return s
 }
 
 // expandPath resolves a leading "~" to $HOME. Returns unchanged for empty
