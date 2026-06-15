@@ -203,7 +203,7 @@ func (r *Resolved) spawnSnapshotAndIngest(
 	if opts.DryRun {
 		stats, err = countJSONL(stdout)
 	} else {
-		stats, err = Ingest(db, stdout)
+		stats, err = Ingest(db, stdout, r)
 	}
 	waitErr := cmd.Wait()
 	if err != nil {

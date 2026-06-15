@@ -17,12 +17,13 @@
 //	  disctrack db-path                  prints <tracking-root>/messages.db
 //
 //	Message-DB CRUD (ported from mcpcontribd):
-//	  disctrack messages since <channel-name-or-id> [--ts ISO]
+//	  disctrack messages <channel-name-or-id> [--since N|ISO] [-o fmt]
 //	  disctrack cursor get <channel-name-or-id>
 //	  disctrack cursor set <channel-name-or-id> <value>
 //	  disctrack cursor list [channel-name-or-id]
 //	  disctrack ingest [--from-file path]
 //	  disctrack backup [--retain N]
+//	  disctrack threads list <parent-channel-name-or-id> [-o fmt]
 //
 //	Scrape orchestration:
 //	  disctrack sync <channel-name-or-id> [--max-iters N]
@@ -93,6 +94,7 @@ func Execute() {
 		cursorCmd(),
 		ingestCmd(),
 		backupCmd(),
+		threadsCmd(),
 
 		// Scrape orchestration (thin wrapper over sync_tool for now)
 		syncCmd(),

@@ -41,7 +41,11 @@ type IngestStats struct {
 //   - new row → INSERT
 //   - existing, same content → noop (duplicates count)
 //   - existing, different content → UPDATE content + last_edited_at
-func Ingest(db *gorm.DB, r io.Reader) (IngestStats, error) {
+//
+// Pass a non-nil resolver to denormalize parent_channel_id from each
+// channel's manifest onto the inserted rows. nil resolver still works for
+// callers that don't care about thread parentage.
+func Ingest(db *gorm.DB, r io.Reader, resolved *Resolved) (IngestStats, error) {
 	incoming, parseErrors, err := readJSONL(r)
 	if err != nil {
 		return IngestStats{}, err
@@ -49,13 +53,32 @@ func Ingest(db *gorm.DB, r io.Reader) (IngestStats, error) {
 	stats := IngestStats{Errors: parseErrors}
 	err = db.Transaction(func(tx *gorm.DB) error {
 		for channelID, msgs := range groupByChannel(incoming) {
-			if err := applyBatch(tx, channelID, msgs, &stats); err != nil {
+			parentID := ""
+			if resolved != nil {
+				parentID = lookupParentChannelID(resolved, channelID)
+			}
+			if err := applyBatch(tx, channelID, parentID, msgs, &stats); err != nil {
 				return err
 			}
 		}
 		return nil
 	})
 	return stats, err
+}
+
+// lookupParentChannelID finds the manifest for channelID via reverse lookup,
+// then resolves its parent. Empty result when the channel isn't a configured
+// thread or the manifest is missing.
+func lookupParentChannelID(r *Resolved, channelID string) string {
+	name := r.ReverseLookupChannelName(channelID)
+	if name == "" {
+		return ""
+	}
+	m, _, err := r.LoadChannel(name)
+	if err != nil || m == nil {
+		return ""
+	}
+	return r.ResolveParentChannelID(m)
 }
 
 func readJSONL(r io.Reader) ([]IncomingMessage, int, error) {
@@ -95,7 +118,7 @@ func groupByChannel(msgs []IncomingMessage) map[string][]IncomingMessage {
 	return out
 }
 
-func applyBatch(tx *gorm.DB, channelID string, msgs []IncomingMessage, stats *IngestStats) error {
+func applyBatch(tx *gorm.DB, channelID, parentChannelID string, msgs []IncomingMessage, stats *IngestStats) error {
 	now := NowISO()
 	ids := make([]string, 0, len(msgs))
 	for _, m := range msgs {
@@ -140,14 +163,15 @@ func applyBatch(tx *gorm.DB, channelID string, msgs []IncomingMessage, stats *In
 			updates = append(updates, e)
 		} else {
 			inserts = append(inserts, Message{
-				ChannelID:   m.ChannelID,
-				MessageID:   m.MessageID,
-				TS:          m.TS,
-				Author:      m.Author,
-				Content:     m.Content,
-				URLs:        urlsJSON,
-				ReplyTo:     m.ReplyTo,
-				FirstSeenAt: now,
+				ChannelID:       m.ChannelID,
+				MessageID:       m.MessageID,
+				TS:              m.TS,
+				Author:          m.Author,
+				Content:         m.Content,
+				URLs:            urlsJSON,
+				ReplyTo:         m.ReplyTo,
+				FirstSeenAt:     now,
+				ParentChannelID: parentChannelID,
 			})
 		}
 	}

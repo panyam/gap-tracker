@@ -46,7 +46,7 @@ per channel, so one SELECT covers an entire batch.`,
 				defer f.Close()
 				src = f
 			}
-			stats, err := disctrack.Ingest(db, src)
+			stats, err := disctrack.Ingest(db, src, r)
 			if err != nil {
 				return err
 			}

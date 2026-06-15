@@ -66,11 +66,15 @@ name: <name>
 channel_id: "<channel-id>"
 display_name: "<name>"          # human can refine; sync may auto-update later
 status: active
+kind: text                       # text | thread | forum; default text
+# parent_channel: <name>         # set when kind: thread; references another channel by name or id
 baseline_window: 4w
 tags: []
 notes: |
   Bootstrapped on YYYY-MM-DD via /channel-refresh.
 ```
+
+For Discord threads: write the same manifest by hand with `kind: thread` and `parent_channel: <parent-name>`. Once present, `disctrack threads list <parent>` will surface it, and ingest writes the parent's channel_id into the `parent_channel_id` column on each message row.
 
 Then determine the area folder. If `<areas-dir>/<name>/` doesn't exist, create it with a minimal `README.md` skeleton (headings only — Summary / Status / Strategy / Next steps / When you come back). The skill is bootstrapping the entire tracked-channel layout in one shot.
 

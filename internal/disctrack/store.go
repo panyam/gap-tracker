@@ -13,7 +13,9 @@ import (
 
 // Message is one Discord message synced via snapshot.py. Schema ported
 // verbatim from mcpcontribd's store.go (commit 005694c era) so existing
-// data files migrate without conversion.
+// data files migrate without conversion. ParentChannelID was added later
+// for thread support; AutoMigrate handles the column addition cleanly
+// (existing rows get empty values).
 type Message struct {
 	ChannelID    string `gorm:"primaryKey;column:channel_id"`
 	MessageID    string `gorm:"primaryKey;column:message_id"`
@@ -24,6 +26,12 @@ type Message struct {
 	ReplyTo      string `gorm:"column:reply_to"`
 	FirstSeenAt  string `gorm:"column:first_seen_at;not null"`
 	LastEditedAt string `gorm:"column:last_edited_at"`
+
+	// ParentChannelID denormalizes the parent channel for messages in a
+	// thread. Empty for messages in top-level text channels. Filled by
+	// ingest from the channel's manifest at write time. Indexed so
+	// queries like "messages in #strategy and its threads" stay cheap.
+	ParentChannelID string `gorm:"column:parent_channel_id;index:idx_messages_parent_channel"`
 }
 
 func (Message) TableName() string { return "messages" }
