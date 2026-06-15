@@ -232,9 +232,49 @@ async def main_async(args) -> int:
                     log("  no new messages after scroll, stopping")
                     break
 
-                await page.keyboard.press("PageUp")
-                await page.keyboard.press("PageUp")
-                await page.keyboard.press("PageUp")
+                # Scroll the chat container directly via the DOM instead of
+                # pressing PageUp. PageUp targets whatever element holds
+                # keyboard focus — after page.goto Discord typically focuses
+                # the message input box, where PageUp is a no-op. Result:
+                # snapshot.py would stop after the first viewport with
+                # new_in_batch=0 even though years of history sit above.
+                #
+                # Walk up from any visible message to find the scrollable
+                # ancestor, then jump scrollTop up by ~2 viewport heights.
+                # Discord's virtualizer lazy-loads older messages as the
+                # container's scrollTop changes.
+                scroll_result = await page.evaluate(
+                    """
+                    () => {
+                      const msg = document.querySelector('li[id^="chat-messages-"]');
+                      if (!msg) return { error: 'no message element' };
+                      let el = msg.parentElement;
+                      while (el && el !== document.body) {
+                        const s = window.getComputedStyle(el);
+                        const isScroll =
+                          (s.overflowY === 'auto' || s.overflowY === 'scroll') &&
+                          el.scrollHeight > el.clientHeight;
+                        if (isScroll) {
+                          const before = el.scrollTop;
+                          const step = Math.max(el.clientHeight * 2, 1500);
+                          el.scrollTop = Math.max(0, before - step);
+                          return {
+                            ok: true,
+                            before,
+                            after: el.scrollTop,
+                            height: el.clientHeight,
+                            step,
+                          };
+                        }
+                        el = el.parentElement;
+                      }
+                      return { error: 'no scrollable ancestor found' };
+                    }
+                    """
+                )
+                if isinstance(scroll_result, dict) and scroll_result.get("error"):
+                    log(f"  scroll failed: {scroll_result['error']}; stopping")
+                    break
                 await page.wait_for_timeout(SCROLL_WAIT_MS)
 
             summary = {
