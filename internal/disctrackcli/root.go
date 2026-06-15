@@ -19,8 +19,11 @@
 //	  disctrack ingest [--from-file path]
 //	  disctrack backup [--retain N]
 //
-// `disctrack sync` (Playwright orchestration) currently lives in mcpcontribd
-// and will migrate in a later cut.
+//	Scrape orchestration:
+//	  disctrack sync <channel-name-or-id> [--max-iters N]
+//	    Thin wrapper over the configured sync_tool (default mcpcontribd).
+//	    In a later cut disctrack absorbs the Playwright orchestration and
+//	    sync_tool retires.
 package disctrackcli
 
 import (
@@ -67,6 +70,9 @@ func Execute() {
 		cursorCmd(),
 		ingestCmd(),
 		backupCmd(),
+
+		// Scrape orchestration (thin wrapper over sync_tool for now)
+		syncCmd(),
 
 		versionCmd(),
 	)

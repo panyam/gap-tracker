@@ -3,6 +3,7 @@ package disctrackcli
 import (
 	"encoding/json"
 	"fmt"
+	"os"
 
 	"github.com/panyam/gap-tracker/internal/disctrack"
 	"github.com/spf13/cobra"
@@ -46,6 +47,29 @@ Omit --ts to fetch every synced message for the channel.`,
 			rows, err := disctrack.MessagesSince(db, spec.ChannelID, messagesSinceTS)
 			if err != nil {
 				return err
+			}
+			// Empty result is ambiguous — could be a quiet channel or a stale
+			// DB. Emit a stderr hint so the skill (or human) knows the
+			// difference. JSON pipe on stdout stays clean.
+			if len(rows) == 0 {
+				cursor, _ := disctrack.GetDiscordCursor(db, spec.ChannelID, spec.Name)
+				label := spec.Name
+				if label == "" {
+					label = spec.ChannelID
+				}
+				if !cursor.Found {
+					fmt.Fprintf(os.Stderr,
+						"warn: %s has no sync history. Run `disctrack sync %s` to bootstrap.\n",
+						label, label)
+				} else {
+					sinceMsg := "any time"
+					if messagesSinceTS != "" {
+						sinceMsg = messagesSinceTS
+					}
+					fmt.Fprintf(os.Stderr,
+						"warn: 0 messages since %s. Last synced: %s (cursor: %s). Run `disctrack sync %s` if you expect newer messages.\n",
+						sinceMsg, cursor.UpdatedAt, cursor.CursorValue, label)
+				}
 			}
 			b, err := json.MarshalIndent(rows, "", "  ")
 			if err != nil {
