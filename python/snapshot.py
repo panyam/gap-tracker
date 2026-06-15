@@ -34,7 +34,7 @@ from playwright.async_api import async_playwright
 
 DEFAULT_MAX_ITERS = 10
 SCROLL_WAIT_MS = 800
-RENDER_TIMEOUT_MS = 15000
+RENDER_TIMEOUT_MS = 60000
 
 
 def log(msg: str) -> None:
