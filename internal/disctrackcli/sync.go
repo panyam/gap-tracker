@@ -3,13 +3,14 @@ package disctrackcli
 import (
 	"encoding/json"
 	"fmt"
+	"time"
 
 	"github.com/panyam/gap-tracker/internal/disctrack"
 	"github.com/spf13/cobra"
 )
 
 var (
-	syncSince          string
+	syncSinceMinutes   int
 	syncMaxIters       int
 	syncNoBackup       bool
 	syncDryRun         bool
@@ -52,9 +53,16 @@ The browser launches headed by default so an expired login is visible. Pass
 			if err != nil {
 				return err
 			}
+			// --since N minutes → ISO timestamp. 0 (default) leaves Since
+			// empty so Sync() falls back to the cursor in the DB.
+			since := ""
+			if syncSinceMinutes > 0 {
+				cutoff := time.Now().UTC().Add(-time.Duration(syncSinceMinutes) * time.Minute)
+				since = cutoff.Format(time.RFC3339)
+			}
 			opts := disctrack.SyncOptions{
 				Channel:    *spec,
-				Since:      syncSince,
+				Since:      since,
 				MaxIters:   syncMaxIters,
 				NoBackup:   syncNoBackup,
 				DryRun:     syncDryRun,
@@ -71,7 +79,7 @@ The browser launches headed by default so an expired login is visible. Pass
 			return nil
 		},
 	}
-	c.Flags().StringVar(&syncSince, "since", "", "ISO8601 cursor override; otherwise read from DB")
+	c.Flags().IntVar(&syncSinceMinutes, "since", 0, "Sync messages from the last N minutes (0 = use cursor from DB)")
 	c.Flags().IntVar(&syncMaxIters, "max-iters", 0, "Max scroll iterations (0 = snapshot.py default)")
 	c.Flags().BoolVar(&syncNoBackup, "no-backup", false, "Skip pre-sync DB snapshot")
 	c.Flags().BoolVar(&syncDryRun, "dry-run", false, "Run snapshot but don't write to DB")
