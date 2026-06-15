@@ -228,9 +228,13 @@ async def main_async(args) -> int:
                 if since and batch_oldest and batch_oldest <= since:
                     log(f"  cursor reached (oldest {batch_oldest} <= since {since})")
                     break
-                if new_in_batch == 0:
-                    log("  no new messages after scroll, stopping")
-                    break
+                # Note: a `new_in_batch == 0` early-exit here would fire
+                # prematurely. Discord only lazy-loads more history when
+                # scrollTop is close to 0, so several scrolls deep in the
+                # buffer can return zero new messages even though more
+                # history is reachable. Real top-of-channel is detected
+                # post-scroll below by checking scrollTop=0 + scrollHeight
+                # unchanged during the wait.
 
                 # Scroll the chat container directly via the DOM instead of
                 # pressing PageUp. PageUp targets whatever element holds
@@ -299,16 +303,31 @@ async def main_async(args) -> int:
                     }
                     """
                 )
-                height_after = (
-                    f"{post_scroll['scrollHeight']:.0f}" if post_scroll else "N/A"
+                height_after_num = (
+                    post_scroll["scrollHeight"] if post_scroll else None
+                )
+                height_after_str = (
+                    f"{height_after_num:.0f}" if height_after_num is not None else "N/A"
                 )
                 log(
                     f"    scroll: before={scroll_result['before']:.0f} "
                     f"after={scroll_result['after']:.0f} "
                     f"height_before={scroll_result['heightBefore']:.0f} "
-                    f"height_after={height_after} "
+                    f"height_after={height_after_str} "
                     f"viewport={scroll_result['clientHeight']:.0f}"
                 )
+
+                # True top-of-channel detection. The scroll attempt had
+                # scrollTop already at 0 going in AND the scrollHeight did
+                # not grow during the wait. Discord has no older history
+                # left to lazy-load.
+                if (
+                    scroll_result["before"] == 0
+                    and height_after_num is not None
+                    and height_after_num == scroll_result["heightBefore"]
+                ):
+                    log("  scrollTop already 0, scrollHeight unchanged → top of channel")
+                    break
 
             summary = {
                 "iterations": iter_count,
