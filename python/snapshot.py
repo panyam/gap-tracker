@@ -91,6 +91,22 @@ EXTRACT_JS = r"""
       }
     }
 
+    // Thread-start markers ("X started a thread: TITLE") render the thread
+    // title as a relative anchor /channels/<guild>/<thread_id>. That anchor
+    // is the only place the thread's own channel_id appears — the marker's
+    // message_id is NOT the thread_id. Capture it so `threads discover` can
+    // enumerate untracked threads without a human opening each in Discord.
+    // Gate on the marker text so channel-mention links in ordinary messages
+    // (same /channels/ shape) don't get mistaken for a thread anchor.
+    let threadId = null;
+    if (item.innerText && item.innerText.includes('started a thread')) {
+      const threadAnchor = item.querySelector('a[href^="/channels/"]');
+      if (threadAnchor) {
+        const tm = threadAnchor.getAttribute('href').match(/\/channels\/\d+\/(\d+)/);
+        if (tm) threadId = tm[1];
+      }
+    }
+
     const editedEl = item.querySelector(`time[id="message-edited-timestamp-${messageId}"]`);
     const editedTs = editedEl ? editedEl.getAttribute('datetime') : null;
 
@@ -110,6 +126,7 @@ EXTRACT_JS = r"""
       urls: urls,
       edited_ts: editedTs,
       reply_to: replyTo,
+      thread_id: threadId,
     });
   }
   return out;

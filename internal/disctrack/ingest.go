@@ -21,6 +21,7 @@ type IncomingMessage struct {
 	URLs      []string `json:"urls"`
 	EditedTS  string   `json:"edited_ts"`
 	ReplyTo   string   `json:"reply_to"`
+	ThreadID  string   `json:"thread_id"`
 }
 
 // IngestStats summarises one batch of ingested messages. Matches mcpcontribd's
@@ -149,16 +150,27 @@ func applyBatch(tx *gorm.DB, channelID, parentChannelID string, msgs []IncomingM
 			urlsJSON = string(b)
 		}
 		if e, ok := existing[m.MessageID]; ok {
-			if e.Content == m.Content {
+			contentSame := e.Content == m.Content
+			// Backfill thread_id onto marker rows ingested before
+			// thread-anchor capture landed. The marker content never
+			// changes, so without this the row would stay a "duplicate"
+			// forever and never gain its thread_id on re-sync.
+			threadIDNew := m.ThreadID != "" && e.ThreadID != m.ThreadID
+			if contentSame && !threadIDNew {
 				stats.Duplicates++
 				continue
 			}
-			e.Content = m.Content
-			e.URLs = urlsJSON
-			if m.EditedTS != "" {
-				e.LastEditedAt = m.EditedTS
-			} else {
-				e.LastEditedAt = now
+			if !contentSame {
+				e.Content = m.Content
+				e.URLs = urlsJSON
+				if m.EditedTS != "" {
+					e.LastEditedAt = m.EditedTS
+				} else {
+					e.LastEditedAt = now
+				}
+			}
+			if threadIDNew {
+				e.ThreadID = m.ThreadID
 			}
 			updates = append(updates, e)
 		} else {
@@ -172,6 +184,7 @@ func applyBatch(tx *gorm.DB, channelID, parentChannelID string, msgs []IncomingM
 				ReplyTo:         m.ReplyTo,
 				FirstSeenAt:     now,
 				ParentChannelID: parentChannelID,
+				ThreadID:        m.ThreadID,
 			})
 		}
 	}

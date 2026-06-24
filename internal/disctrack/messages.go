@@ -17,6 +17,7 @@ type MessageView struct {
 	URLs         []string `json:"urls" yaml:"urls"`
 	ReplyTo      string   `json:"reply_to,omitempty" yaml:"reply_to,omitempty"`
 	LastEditedAt string   `json:"last_edited_at,omitempty" yaml:"last_edited_at,omitempty"`
+	ThreadID     string   `json:"thread_id,omitempty" yaml:"thread_id,omitempty"`
 }
 
 // MessagesSince returns messages for channelID strictly newer than sinceTS,
@@ -45,6 +46,7 @@ func MessagesSince(db *gorm.DB, channelID, sinceTS string) ([]MessageView, error
 			URLs:         urls,
 			ReplyTo:      r.ReplyTo,
 			LastEditedAt: r.LastEditedAt,
+			ThreadID:     r.ThreadID,
 		})
 	}
 	return out, nil

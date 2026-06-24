@@ -32,6 +32,15 @@ type Message struct {
 	// ingest from the channel's manifest at write time. Indexed so
 	// queries like "messages in #strategy and its threads" stay cheap.
 	ParentChannelID string `gorm:"column:parent_channel_id;index:idx_messages_parent_channel"`
+
+	// ThreadID is the channel_id of the thread a "started a thread" system
+	// marker points at, captured by snapshot.py from the marker's thread
+	// anchor. Empty for ordinary messages (and for marker rows ingested
+	// before thread-anchor capture landed — those backfill on the next
+	// re-sync). Note the marker's own message_id is NOT the thread_id; the
+	// thread is a separate Discord channel. Indexed so `threads discover`
+	// can scan markers cheaply. AutoMigrate adds the column to existing DBs.
+	ThreadID string `gorm:"column:thread_id;index:idx_messages_thread_id"`
 }
 
 func (Message) TableName() string { return "messages" }
