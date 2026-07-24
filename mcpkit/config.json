@@ -28,6 +28,11 @@
       "repo": "modelcontextprotocol/ext-auth",
       "label": "ext-auth",
       "include_prs": true
+    },
+    {
+      "repo": "modelcontextprotocol/agents-wg",
+      "label": "agents-wg",
+      "include_prs": true
     }
   ]
 }
