@@ -1,3 +1,8 @@
+---
+description: "Refresh an area's non-Discord sources: spec PR activity via gapt and gh, code-repo activity via git log, and external doc reviews such as Google Docs and IETF drafts. Synthesizes updates into CURRENT_GAPS.md using the same conventions as /channel-refresh. Use for PR-primary areas with no channel, or alongside /channel-refresh for areas that have both. Triggers: \"refresh the proposals\", \"update gaps from the spec PRs\", \"what changed upstream in <area>\"."
+argument-hint: "[area name]"
+---
+
 Refresh an area's non-Discord sources: spec PR activity (via gapt + gh), code-repo activity (git log), external doc reviews (Google Docs, IETF drafts). Synthesize updates to `CURRENT_GAPS.md` following the same conventions as `/channel-refresh`. Counterpart skill — use both for areas that have both Discord chatter and PR/doc activity; use only this one for PR-primary areas with no channel.
 
 ## Configuration

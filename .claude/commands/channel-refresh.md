@@ -1,3 +1,8 @@
+---
+description: "Refresh a single Discord channel's gap view: read messages from the local gaps DB, gather context from gapt, the code repo, and area docs, then synthesize CURRENT_GAPS.md in the area folder. Analysis-only, so it never drives the browser, never files issues, and never modifies README. Run `disctrack sync <name>` separately for fresh messages. Use when the user says \"refresh the channel\", \"update gaps for <channel>\", or names a Discord channel to re-synthesize."
+argument-hint: "[channel name]"
+---
+
 Refresh a single Discord channel: read messages from the local DB, gather context from gapt + code repo + area docs, synthesize a current-gaps view, write `CURRENT_GAPS.md` in the area folder.
 
 **This skill is analysis-only — it never drives the browser.** Run `disctrack sync <name>` separately when you want fresh messages; this verb just reads what's already in the DB and synthesizes from it. The staleness warning that `disctrack messages` prints to stderr will surface if the DB hasn't caught up to your requested window.

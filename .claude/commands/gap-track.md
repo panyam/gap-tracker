@@ -1,3 +1,8 @@
+---
+description: "Review a source issue from the gap-tracker DB, validate whether the gap actually exists by writing a test, then triage it. Writes directly to the `triage` table in gaps.db, which is the source of truth. Use when the user says \"gap-track <project>\", \"triage this gap\", \"does <upstream issue> affect us\", or wants a gap report for a project."
+argument-hint: "<project> [source_ref], e.g. `mcpkit go-sdk:666`"
+---
+
 Review a source issue from the gap-tracker DB, validate whether the gap exists by writing a test, then triage.
 
 **Source of truth is `gaps.db`** — specifically the `triage` table. YAML snapshots are export-only via `triage export`. All verbs below write directly to the DB. See `~/newstack/gap-tracker/docs/STATE_MACHINE.md` for the full state machine and flows.

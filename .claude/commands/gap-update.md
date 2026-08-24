@@ -1,3 +1,8 @@
+---
+description: "Reconcile an area's CURRENT_GAPS.md against the code repo and the open issue list. Proposes a per-gap action (close, fold, file a new ticket, update an existing one, hold), surfaces references that would fire GitHub backlinks, takes per-action confirmation, then executes. Mutates both CURRENT_GAPS.md and gh state, unlike /channel-refresh and /proposal-refresh which only write the doc. Use when the user says \"reconcile the gaps\", \"update the gap tickets\", or \"sync CURRENT_GAPS with the issues\"."
+argument-hint: "[area name]"
+---
+
 Reconcile an area's `CURRENT_GAPS.md` against the code repo and open issue list. Proposes per-gap actions (close / fold / file new ticket / update existing ticket / hold), surfaces backlink-firing references, takes per-action confirmation, then executes the approved actions. Mutates BOTH `CURRENT_GAPS.md` AND `gh` state. Pair with `/channel-refresh` or `/proposal-refresh` (which write CURRENT_GAPS.md but don't touch tickets).
 
 ## Configuration
