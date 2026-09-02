@@ -21,6 +21,7 @@ Stop conditions (whichever comes first):
 import argparse
 import asyncio
 import json
+import re
 import sys
 from pathlib import Path
 
@@ -42,7 +43,7 @@ def log(msg: str) -> None:
 
 
 EXTRACT_JS = r"""
-() => {
+(TARGET) => {
   function findAuthor(item) {
     const directEl = item.querySelector('[id^="message-username-"]');
     if (directEl) {
@@ -71,6 +72,13 @@ EXTRACT_JS = r"""
     const channelId = idMatch[1];
     const messageId = idMatch[2];
 
+    // Only emit messages for the channel being scraped. Resolving a thread's
+    // id (below, Python side) clicks the marker title, which mounts that
+    // thread's own chat-messages-<threadId>-* rows into the DOM in a side
+    // panel. Without this guard those rows would be misattributed as
+    // parent-channel messages on the next extract pass.
+    if (TARGET && channelId !== TARGET) continue;
+
     const timeEl = item.querySelector(
       `#message-timestamp-${messageId}, time[id="message-timestamp-${messageId}"]`
     ) || item.querySelector('time[datetime]:not([id^="message-edited-timestamp-"])');
@@ -91,21 +99,18 @@ EXTRACT_JS = r"""
       }
     }
 
-    // Thread-start markers ("X started a thread: TITLE") render the thread
-    // title as a relative anchor /channels/<guild>/<thread_id>. That anchor
-    // is the only place the thread's own channel_id appears — the marker's
-    // message_id is NOT the thread_id. Capture it so `threads discover` can
-    // enumerate untracked threads without a human opening each in Discord.
-    // Gate on the marker text so channel-mention links in ordinary messages
-    // (same /channels/ shape) don't get mistaken for a thread anchor.
-    let threadId = null;
-    if (item.innerText && item.innerText.includes('started a thread')) {
-      const threadAnchor = item.querySelector('a[href^="/channels/"]');
-      if (threadAnchor) {
-        const tm = threadAnchor.getAttribute('href').match(/\/channels\/\d+\/(\d+)/);
-        if (tm) threadId = tm[1];
-      }
-    }
+    // Thread-start markers ("X started a thread: TITLE"). Discord no longer
+    // renders the thread title as an <a href="/channels/...">; the title is
+    // an href-less <a role="link"> that navigates via a JS click handler, and
+    // the thread's own channel_id appears nowhere in the marker's static DOM
+    // (nor in the title anchor's React props at reachable depth). So we only
+    // FLAG the marker here; the id is resolved Python-side by clicking the
+    // title and reading the resulting /threads/<id> URL (see resolveThreadId).
+    // The marker's own message_id is NOT the thread_id — a thread's id is the
+    // id of the source message it was branched from.
+    const isThreadMarker = !!(
+      item.innerText && item.innerText.includes('started a thread')
+    );
 
     const editedEl = item.querySelector(`time[id="message-edited-timestamp-${messageId}"]`);
     const editedTs = editedEl ? editedEl.getAttribute('datetime') : null;
@@ -126,12 +131,47 @@ EXTRACT_JS = r"""
       urls: urls,
       edited_ts: editedTs,
       reply_to: replyTo,
-      thread_id: threadId,
+      thread_id: null,
+      is_thread_marker: isThreadMarker,
     });
   }
   return out;
 }
 """
+
+
+# /channels/<guild>/<parent_channel>/threads/<thread_id> — the URL Discord
+# navigates to when a thread-start marker's title is clicked.
+THREAD_URL_RE = re.compile(r"/channels/\d+/\d+/threads/(\d+)")
+
+
+async def resolve_thread_id(page, channel_id: str, message_id: str) -> str | None:
+    """Resolve a thread-start marker's thread channel_id by clicking its title
+    and reading the resulting /threads/<id> URL. Opens the thread in a side
+    panel; Escape closes it, leaving the parent channel list mounted (the
+    TARGET filter in EXTRACT_JS keeps the panel's messages from polluting the
+    scrape). Best-effort: returns None if the title anchor is absent or the
+    URL never carries a /threads/ segment. Never raises."""
+    sel = f'li[id="chat-messages-{channel_id}-{message_id}"] strong a[role="link"]'
+    try:
+        anchor = await page.query_selector(sel)
+        if anchor is None:
+            return None
+        await anchor.click()
+        await page.wait_for_timeout(1000)
+        m = THREAD_URL_RE.search(page.url)
+        return m.group(1) if m else None
+    except Exception as e:
+        log(f"  thread resolve error for marker {message_id}: {e}")
+        return None
+    finally:
+        # Always close the side panel so the next extract/scroll sees the
+        # parent channel list, not a thread.
+        try:
+            await page.keyboard.press("Escape")
+            await page.wait_for_timeout(400)
+        except Exception:
+            pass
 
 
 LOGIN_TIMEOUT_MS = 5 * 60 * 1000  # 5 minutes
@@ -201,6 +241,7 @@ async def main_async(args) -> int:
                 return 1
 
             seen_ids: set[tuple[str, str]] = set()
+            resolved_threads: dict[str, str | None] = {}
             iter_count = 0
             oldest_seen: str | None = None
             newest_seen: str | None = None
@@ -209,7 +250,7 @@ async def main_async(args) -> int:
 
             while iter_count < args.max_iters:
                 iter_count += 1
-                batch = await page.evaluate(EXTRACT_JS)
+                batch = await page.evaluate(EXTRACT_JS, args.channel)
                 new_in_batch = 0
                 batch_oldest: str | None = None
                 batch_newest: str | None = None
@@ -220,6 +261,24 @@ async def main_async(args) -> int:
                         continue
                     seen_ids.add(key)
                     new_in_batch += 1
+
+                    # Thread-start markers carry no thread id in static DOM;
+                    # resolve it by clicking the title (once per marker, cached).
+                    is_marker = m.pop("is_thread_marker", False)
+                    if is_marker:
+                        mid = m["message_id"]
+                        if mid not in resolved_threads:
+                            resolved_threads[mid] = await resolve_thread_id(
+                                page, m["channel_id"], mid
+                            )
+                            tid = resolved_threads[mid]
+                            log(
+                                f"  marker {mid} -> thread {tid}"
+                                if tid
+                                else f"  marker {mid} -> thread UNRESOLVED"
+                            )
+                        m["thread_id"] = resolved_threads[mid]
+
                     print(json.dumps(m), flush=True)
                     emitted += 1
                     if batch_oldest is None or m["ts"] < batch_oldest:
