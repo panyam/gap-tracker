@@ -54,9 +54,12 @@ gap-tracker/
 │   ├── store/render/github/triage/  # gapt internals
 │   ├── disctrack/         # resolver + manifest types
 │   └── disctrackcli/      # disctrack cobra tree
-├── .claude/
-│   ├── commands/          # globalized discord-tracking skills (symlinked into ~/.claude/commands/)
-│   └── discord-tracking-playbook.md  # resolver + config schema (symlinked into ~/.claude/)
+├── .claude-plugin/
+│   └── marketplace.json   # makes this repo a Claude Code marketplace
+├── plugins/gaps/          # the `gaps` plugin, served straight from git
+│   ├── skills/gaps/       # the /gaps skill (channel | proposal | update)
+│   ├── commands/          # /gap-track, /area-refresh
+│   └── reference/discord-tracking-playbook.md  # resolver + config schema
 ├── docs/STATE_MACHINE.md  # design anchor: states, verbs, entry points
 ├── main.py                # legacy Python CLI (parity port source)
 ├── mcpkit/                # per-project data:
@@ -68,30 +71,45 @@ gap-tracker/
 
 ## Discord-tracking skills (Claude Code)
 
-The `.claude/commands/` directory holds four globalized slash commands:
-`channel-refresh`, `proposal-refresh`, `gap-update`, `area-refresh`. They
-work against any project that has a `.discord-tracking.yaml` (directly,
-or via a `discord_tracking` symlink to a sibling tracking repo). The
-`disctrack` binary backs them. The shared resolver/config spec lives at
-`.claude/discord-tracking-playbook.md`.
+This repo is a Claude Code **marketplace**. `plugins/gaps/` carries the
+`/gaps` skill (`channel`, `proposal`, `update`), the `/gap-track` and
+`/area-refresh` commands, and the resolver/config spec they share. They
+work against any project that has a `.discord-tracking.yaml` (directly, or
+via a `discord_tracking` symlink to a sibling tracking repo). The
+`disctrack` binary backs them.
 
-These files only matter to Claude Code when symlinked into `~/.claude/`.
-On a fresh machine:
+Nothing is published anywhere: a marketplace is just a git repo with a
+`.claude-plugin/marketplace.json`. Declare it once, in the tracked
+`.claude/settings.json` of each repo that has areas to track:
+
+```json
+{
+  "extraKnownMarketplaces": {
+    "gap-tracker": { "source": { "source": "github", "repo": "panyam/gap-tracker" } }
+  },
+  "enabledPlugins": { "gaps@gap-tracker": true }
+}
+```
+
+That declaration IS the install — a fresh clone of the tracking repo has
+the skill, with no per-machine command to remember and no symlink into
+`$HOME`. Add it ad hoc on a machine instead with:
 
 ```bash
-# 1. Get the repo + install the binary
+claude plugin marketplace add panyam/gap-tracker --sparse .claude-plugin plugins
+claude plugin install gaps@gap-tracker
+```
+
+The binaries are still a normal Go install:
+
+```bash
 git clone <gap-tracker-remote> ~/newstack/gap-tracker
 cd ~/newstack/gap-tracker && make install
-
-# 2. Symlink the skills + playbook into ~/.claude/
-mkdir -p ~/.claude/commands
-for f in channel-refresh proposal-refresh gap-update area-refresh; do
-  ln -s "$HOME/newstack/gap-tracker/.claude/commands/${f}.md" \
-        "$HOME/.claude/commands/${f}.md"
-done
-ln -s "$HOME/newstack/gap-tracker/.claude/discord-tracking-playbook.md" \
-      "$HOME/.claude/discord-tracking-playbook.md"
 ```
+
+**Paths inside the plugin are plugin-relative (`${CLAUDE_PLUGIN_ROOT}`) or
+`~`-relative, never absolute.** An absolute path here is only ever right on
+the machine it was written on; see megh's `CONSTRAINTS.md` C6.
 
 Each tracked project then needs either a `.discord-tracking.yaml` at its
 repo root (when the project IS the tracking repo, like `mcpcontrib`) or a
@@ -106,7 +124,7 @@ target checkout path used by `gapt triage verify`:
 ```json
 {
   "target_repo": "panyam/mcpkit",
-  "target_path": "/Users/dzshrh/newstack/mcpkit/gaptrack",
+  "target_path": "~/newstack/mcpkit/gaptrack",
   "sources": [
     {"repo": "modelcontextprotocol/go-sdk", "label": "go-sdk"},
     {"repo": "modelcontextprotocol/specification", "label": "spec"},

@@ -1,6 +1,6 @@
 {
   "target_repo": "panyam/mcpkit",
-  "target_path": "/Users/dzshrh/newstack/mcpkit/gaptrack",
+  "target_path": "~/newstack/mcpkit/gaptrack",
   "sources": [
     {
       "repo": "modelcontextprotocol/go-sdk",

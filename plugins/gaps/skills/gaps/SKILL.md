@@ -29,7 +29,7 @@ artifacts, and only one of them mutates GitHub.
 ## Configuration
 
 Resolve the tracking root and load `<tracking-root>/.discord-tracking.yaml`. See
-`~/.claude/discord-tracking-playbook.md` for the resolver and the config schema.
+`${CLAUDE_PLUGIN_ROOT}/reference/discord-tracking-playbook.md` for the resolver and the config schema.
 Throughout all three modes, placeholders like `<channels-dir>`, `<areas-dir>`,
 `<code.name>`, `<code.repo>`, `<code.default_worktree>` and `<gapt.project_id>`
 refer to values from that config.

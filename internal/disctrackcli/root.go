@@ -72,7 +72,7 @@ When neither -C nor a cwd-based resolution succeeds, $DISCTRACK_ROOT is
 consulted as a fallback. Set it in your shell rc to attach a default
 tracking root for any cwd that doesn't have its own.
 
-See ~/.claude/discord-tracking-playbook.md for the layout + config schema.`,
+See gap-tracker/plugins/gaps/reference/discord-tracking-playbook.md for the layout + config schema.`,
 	SilenceUsage:  true,
 	SilenceErrors: true,
 }

@@ -1,6 +1,6 @@
 # Discord-tracking playbook
 
-Shared infrastructure for the global discord-tracking skills (`/channel-refresh`, `/proposal-refresh`, `/area-refresh`, `/group-refresh`, `/gap-update`). Each of those skills starts by resolving a **tracking root** and loading a **config**. This file specifies both.
+Shared infrastructure for the global discord-tracking skills (`/gaps channel`, `/gaps proposal`, `/area-refresh`, `/group-refresh`, `/gaps update`). Each of those skills starts by resolving a **tracking root** and loading a **config**. This file specifies both.
 
 Skills are project-scoped: they only work when invoked inside a tracked project's directory tree. If no tracking root resolves from cwd, the skill refuses to run.
 
@@ -35,7 +35,7 @@ cwd: <cwd>
 walked: <list of ancestors checked>
 to set up a tracked project:
   - cd into the project root
-  - if this is the tracking repo: add .discord-tracking.yaml (see ~/.claude/discord-tracking-playbook.md for schema)
+  - if this is the tracking repo: add .discord-tracking.yaml (see the discord-tracking playbook for the schema)
   - if this is a code repo: ln -s ../<project>-tracking discord_tracking (then add .discord-tracking.yaml in the tracking repo)
 ```
 
@@ -59,7 +59,7 @@ discord:
 code:
   name: mcpkit                                        # human-readable; used in prose ("mcpkit side", citations)
   repo: panyam/mcpkit                                 # GitHub org/repo for issue mutations
-  default_worktree: ~/newstack/mcpkit/main            # used by /gap-update, /channel-refresh, /proposal-refresh
+  default_worktree: ~/newstack/mcpkit/main            # used by /gaps update, /gaps channel, /gaps proposal
   area_refresh_checkout: ~/newstack/mcpkit/gaptrack   # /area-refresh default; falls back to default_worktree
 
 # gapt integration — optional; omit the whole block to disable gapt steps
@@ -79,17 +79,17 @@ When a skill below refers to a placeholder, the value comes from config:
 
 | Placeholder | Source | Example |
 |---|---|---|
-| `<tracking-root>` | resolver output | `/Users/dzshrh/projects/mcpcontrib` |
-| `<channels-dir>` | `channels_dir`, joined to tracking root | `/Users/dzshrh/projects/mcpcontrib/discord/channels` |
-| `<areas-dir>` | `areas_dir`, joined to tracking root | `/Users/dzshrh/projects/mcpcontrib/proposals` |
+| `<tracking-root>` | resolver output | `<home>/projects/mcpcontrib` |
+| `<channels-dir>` | `channels_dir`, joined to tracking root | `<home>/projects/mcpcontrib/discord/channels` |
+| `<areas-dir>` | `areas_dir`, joined to tracking root | `<home>/projects/mcpcontrib/proposals` |
 | `<groups-dir>` | `areas_dir/groups_dir` | `.../proposals/_groups` |
 | `<code.name>` | `code.name` | `mcpkit` |
 | `<code.repo>` | `code.repo` | `panyam/mcpkit` |
-| `<code.default_worktree>` | `code.default_worktree`, ~-expanded | `/Users/dzshrh/newstack/mcpkit/main` |
+| `<code.default_worktree>` | `code.default_worktree`, ~-expanded | `<home>/newstack/mcpkit/main` |
 | `<code.area_refresh_checkout>` | `code.area_refresh_checkout` or fallback | as above |
 | `<discord.guild_id>` | `discord.guild_id` | `1358869848138059966` |
-| `<discord.parse_snapshot_script>` | `discord.parse_snapshot_script` (may be null) | `/Users/dzshrh/projects/mcpcontrib/discord/parse_snapshot.py` |
-| `<discord.setup_doc>` | `discord.setup_doc` (relative to tracking root) | `/Users/dzshrh/projects/mcpcontrib/discord/setup.md` |
+| `<discord.parse_snapshot_script>` | `discord.parse_snapshot_script` (may be null) | `<home>/projects/mcpcontrib/discord/parse_snapshot.py` |
+| `<discord.setup_doc>` | `discord.setup_doc` (relative to tracking root) | `<home>/projects/mcpcontrib/discord/setup.md` |
 | `<gapt.project_id>` | `gapt.project_id` if `gapt.enabled` | `mcpkit` |
 | `<sync_tool>` | `sync_tool.command` or `mcpcontribd` | `mcpcontribd` |
 
@@ -106,8 +106,8 @@ Each tracked project (regardless of whether tracking is in-repo or a sibling rep
 │   ├── <area-name>/
 │   │   ├── area.yaml                # per-area manifest (PR/doc tracking config)
 │   │   ├── README.md                # area's human-readable strategy doc
-│   │   ├── CURRENT_GAPS.md          # written by /channel-refresh + /proposal-refresh
-│   │   ├── gap-update-plan.md       # ephemeral; written by /gap-update; gitignored
+│   │   ├── CURRENT_GAPS.md          # written by /gaps channel + /gaps proposal
+│   │   ├── gap-update-plan.md       # ephemeral; written by /gaps update; gitignored
 │   │   ├── refresh-YYYY-MM-DD.md    # per-run output of /area-refresh
 │   │   └── spec-snapshots/          # snapshots for inline-comment cursors
 │   └── <groups-dir>/
@@ -127,9 +127,9 @@ The `channel-name` and `area-name` may differ (one channel may map to a differen
 
 ## Layout vs. skills compatibility
 
-- `/channel-refresh`, `/gap-update`: require `code.default_worktree`, optionally `gapt`, `sync_tool`.
-- `/proposal-refresh`: requires `code.default_worktree`, optionally `gapt`. Discord not needed (PR-only).
+- `/gaps channel`, `/gaps update`: require `code.default_worktree`, optionally `gapt`, `sync_tool`.
+- `/gaps proposal`: requires `code.default_worktree`, optionally `gapt`. Discord not needed (PR-only).
 - `/area-refresh`: requires `code.area_refresh_checkout`, `discord.guild_id`, `discord.parse_snapshot_script`. Heaviest config dependency.
 - `/group-refresh`: pure delegation to `/area-refresh`; no extra config.
 
-A tracked project that doesn't use Playwright snapshots (e.g. lilbattle, if mcpcontribd-only) can leave `discord.parse_snapshot_script` and `discord.guild_id` unset and skip `/area-refresh`; the lighter `/channel-refresh` works without them.
+A tracked project that doesn't use Playwright snapshots (e.g. lilbattle, if mcpcontribd-only) can leave `discord.parse_snapshot_script` and `discord.guild_id` unset and skip `/area-refresh`; the lighter `/gaps channel` works without them.

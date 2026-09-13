@@ -1,0 +1,15 @@
+{
+  "$schema": "https://anthropic.com/claude-code/marketplace.schema.json",
+  "name": "gap-tracker",
+  "description": "Gap-tracking workflow for reconciling upstream (Discord, spec PRs, external docs) against our repos",
+  "owner": {
+    "name": "panyam"
+  },
+  "plugins": [
+    {
+      "name": "gaps",
+      "source": "./plugins/gaps",
+      "description": "Track and reconcile deltas between upstream and our code repos, using the gap-tracker DB and per-area CURRENT_GAPS.md files"
+    }
+  ]
+}

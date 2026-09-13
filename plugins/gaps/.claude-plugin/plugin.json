@@ -1,0 +1,8 @@
+{
+  "name": "gaps",
+  "description": "Track and reconcile deltas between upstream (Discord channels, spec PRs, external docs) and our code repos. Ships the /gaps skill, the /gap-track and /area-refresh commands, and the discord-tracking playbook they share.",
+  "version": "0.1.0",
+  "author": {
+    "name": "panyam"
+  }
+}

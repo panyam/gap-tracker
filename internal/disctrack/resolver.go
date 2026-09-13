@@ -19,7 +19,7 @@ const ConfigFile = ".discord-tracking.yaml"
 const SymlinkName = "discord_tracking"
 
 // Config is the schema of <tracking-root>/.discord-tracking.yaml. Fields
-// match the playbook (~/.claude/discord-tracking-playbook.md).
+// match the playbook (gap-tracker/plugins/gaps/reference/discord-tracking-playbook.md).
 type Config struct {
 	ChannelsDir string         `yaml:"channels_dir"`
 	AreasDir    string         `yaml:"areas_dir"`
@@ -120,7 +120,7 @@ func ResolveFrom(start string) (*Resolved, error) {
 			"  rules:\n"+
 			"    1. .discord-tracking.yaml at this or an ancestor directory\n"+
 			"    2. a discord_tracking symlink that resolves to one\n"+
-			"  see ~/.claude/discord-tracking-playbook.md for setup",
+			"  see gap-tracker/plugins/gaps/reference/discord-tracking-playbook.md for setup",
 		abs,
 	)
 }

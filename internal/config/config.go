@@ -10,7 +10,32 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 )
+
+// ExpandPath resolves a leading "~" to $HOME. Returns unchanged for empty
+// strings or paths that don't start with ~.
+//
+// Config files here are shared across machines, so a path in one is written
+// "~/newstack/..." rather than "/Users/<you>/newstack/...". Expansion has to
+// happen on the way in: target_path is handed to `go test`, which does not
+// expand ~ itself. See megh CONSTRAINTS.md C6.
+func ExpandPath(p string) string {
+	if p == "" || p[0] != '~' {
+		return p
+	}
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return p
+	}
+	if p == "~" {
+		return home
+	}
+	if strings.HasPrefix(p, "~/") {
+		return filepath.Join(home, p[2:])
+	}
+	return p
+}
 
 // Source is one upstream feeder repo.
 type Source struct {
@@ -49,6 +74,7 @@ func Load(rootDir, project string) (*Config, error) {
 	if cfg.TargetRepo == "" {
 		return nil, fmt.Errorf("%s: target_repo is required", path)
 	}
+	cfg.TargetPath = ExpandPath(cfg.TargetPath)
 	cfg.ProjectRoot = projectDir
 	cfg.Project = project
 	return &cfg, nil

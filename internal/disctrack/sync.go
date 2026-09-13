@@ -10,6 +10,8 @@ import (
 	"path/filepath"
 	"strconv"
 
+	"github.com/panyam/gap-tracker/internal/config"
+
 	"gorm.io/gorm"
 )
 
@@ -253,21 +255,8 @@ func valueOrNone(s string) string {
 	return s
 }
 
-// expandPath resolves a leading "~" to $HOME. Returns unchanged for empty
-// strings or paths that don't start with ~.
+// expandPath resolves a leading "~" to $HOME. One implementation, in config,
+// so the two packages cannot drift on what a shared config path means.
 func expandPath(p string) string {
-	if p == "" || p[0] != '~' {
-		return p
-	}
-	home, err := os.UserHomeDir()
-	if err != nil {
-		return p
-	}
-	if p == "~" {
-		return home
-	}
-	if len(p) > 1 && p[1] == '/' {
-		return filepath.Join(home, p[2:])
-	}
-	return p
+	return config.ExpandPath(p)
 }

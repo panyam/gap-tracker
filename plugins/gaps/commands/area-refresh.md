@@ -2,11 +2,11 @@ Refresh an interest area: pull deltas from Discord (Playwright path), spec PRs, 
 
 ## Configuration
 
-First, resolve the tracking root and load `<tracking-root>/.discord-tracking.yaml`. See `~/.claude/discord-tracking-playbook.md` for the resolver and config schema. `<areas-dir>`, `<code.area_refresh_checkout>` (with `<code.default_worktree>` as fallback), `<code.name>`, `<discord.guild_id>`, `<discord.parse_snapshot_script>`, `<discord.setup_doc>`, `<gapt.project_id>`, `<gapt.config_path>` refer to values from that config.
+First, resolve the tracking root and load `<tracking-root>/.discord-tracking.yaml`. See `${CLAUDE_PLUGIN_ROOT}/reference/discord-tracking-playbook.md` for the resolver and config schema. `<areas-dir>`, `<code.area_refresh_checkout>` (with `<code.default_worktree>` as fallback), `<code.name>`, `<discord.guild_id>`, `<discord.parse_snapshot_script>`, `<discord.setup_doc>`, `<gapt.project_id>`, `<gapt.config_path>` refer to values from that config.
 
 If the resolver fails, bail with the playbook's error message.
 
-This skill uses the Playwright path for Discord pulls. If `<discord.parse_snapshot_script>` is not set in config, the Discord per-channel pulls are skipped (the rest of the refresh still runs). Use `/channel-refresh` for the lighter `<sync_tool>`-based Discord path.
+This skill uses the Playwright path for Discord pulls. If `<discord.parse_snapshot_script>` is not set in config, the Discord per-channel pulls are skipped (the rest of the refresh still runs). Use `/gaps channel` for the lighter `<sync_tool>`-based Discord path.
 
 ## Arguments
 
@@ -78,7 +78,7 @@ For each source in `area.yaml`, follow these rules. **Cursor null = baseline (re
 
 #### Discord (per channel entry)
 
-Only runs if `<discord.parse_snapshot_script>` is set in config. Otherwise: emit a one-line note in the refresh doc ("Discord pulls require `discord.parse_snapshot_script` in tracking config; use `/channel-refresh` for the lighter sync-tool path") and skip.
+Only runs if `<discord.parse_snapshot_script>` is set in config. Otherwise: emit a one-line note in the refresh doc ("Discord pulls require `discord.parse_snapshot_script` in tracking config; use `/gaps channel` for the lighter sync-tool path") and skip.
 
 If `channel_id` is null: emit schema warning, skip.
 

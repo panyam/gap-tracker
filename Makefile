@@ -36,7 +36,7 @@ DT_LDFLAGS   := -X github.com/panyam/gap-tracker/internal/disctrackcli.Version=$
                 -X github.com/panyam/gap-tracker/internal/disctrackcli.BuildDate=$(BUILD_DATE) \
                 -X github.com/panyam/gap-tracker/internal/disctrack.DefaultSnapshotScript=$(DT_SNAPSHOT)
 
-.PHONY: all build install test tidy fmt vet clean smoke help \
+.PHONY: check-paths all build install test tidy fmt vet clean smoke help \
         build-gapt build-disctrack install-gapt install-disctrack smoke-gapt smoke-disctrack
 
 all: build
@@ -80,8 +80,17 @@ install-disctrack:
 	go install -ldflags "$(DT_LDFLAGS)" $(DT_PKG)
 	@echo "installed: $(GOBIN)/$(DT_BIN)"
 
-test:
+test: check-paths
 	go test ./...
+
+# C6 (megh CONSTRAINTS.md): no tracked file may encode one machine's paths.
+# One implementation, in the dotfiles repo, which is mounted at the same path on
+# the Mac and on every box. Skipped rather than failed where it is absent, so
+# `make test` still works on a machine that has no dotfiles checkout.
+check-paths:
+	@script="$$HOME/dotfiles/shared/checks/no-machine-paths.sh"; \
+	if [ -x "$$script" ]; then "$$script" .; \
+	else echo "skipping machine-path check ($$script not present)"; fi
 
 tidy:
 	go mod tidy
