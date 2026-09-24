@@ -33,7 +33,9 @@ func threadsDiscoverCmd() *cobra.Command {
 		Short: "Find thread-start markers in a synced channel and flag which are untracked",
 		Long: `Scans the synced messages of a parent channel for "started a thread"
 markers and joins them against the tracked thread manifests, so you can see
-which threads still need a channel.yaml + sync.
+which threads still need a channel.yaml + sync. 'disctrack sync <parent>'
+does this itself and tracks the untracked ones, so discover is mostly for
+checking what it will pick up.
 
 The thread's own channel_id (the value you put in the manifest and pass to
 'disctrack sync') is captured from the marker's thread anchor by snapshot.py.
@@ -154,21 +156,20 @@ func threadsListCmd() *cobra.Command {
 	c := &cobra.Command{
 		Use:   "list <parent-channel-name-or-id>",
 		Short: "List threads whose parent_channel matches the argument",
-		Long: `Scans <channels-dir>/*.yaml and prints every manifest with
-kind == "thread" and parent_channel matching the argument (either by name or
-by channel_id).
+		Long: `Scans <channels-dir>/*.yaml and prints every thread manifest whose
+parent matches the argument (either by name or by channel_id). Both manifest
+shapes count: kind: thread + parent_channel, and the legacy parent: block
+(parent.channel_id / parent.channel_name, no kind).
 
 This lists threads you have ALREADY tracked. To find threads in a channel that
 you have not tracked yet, use 'disctrack threads discover <parent>', which
 scans the synced messages for "started a thread" markers and reports each
 thread's channel_id.
 
-You add a thread by writing its channel.yaml by hand:
+'disctrack sync <parent>' writes a manifest for every new thread on its own.
+To add one by hand, use onboard:
 
-  name: my-thread
-  channel_id: "1234567890"
-  kind: thread
-  parent_channel: strategy
+  disctrack onboard strategy-my-topic-thread https://discord.com/channels/<g>/<parent>/threads/<t>
 
 Then 'disctrack threads list strategy' will include it.`,
 		Args: cobra.ExactArgs(1),

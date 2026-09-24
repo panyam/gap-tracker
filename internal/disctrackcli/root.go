@@ -25,11 +25,14 @@
 //	  disctrack backup [--retain N]
 //	  disctrack threads list <parent-channel-name-or-id> [-o fmt]
 //
+//	Onboarding:
+//	  disctrack onboard <name> <discord-url> [--parent P] [--area A] [--sync]
+//	    Writes the channel manifest (+ area README skeleton for text channels).
+//
 //	Scrape orchestration:
-//	  disctrack sync <channel-name-or-id> [--max-iters N]
-//	    Thin wrapper over the configured sync_tool (default mcpcontribd).
-//	    In a later cut disctrack absorbs the Playwright orchestration and
-//	    sync_tool retires.
+//	  disctrack sync <channel-name-or-id> [--max-iters N] [--no-threads]
+//	    Drives python/snapshot.py, ingests, advances the cursor, then
+//	    auto-tracks and syncs the channel's threads in one browser session.
 package disctrackcli
 
 import (
@@ -121,7 +124,8 @@ func Execute() {
 		backupCmd(),
 		threadsCmd(),
 
-		// Scrape orchestration (thin wrapper over sync_tool for now)
+		// Onboarding + scrape orchestration
+		onboardCmd(),
 		syncCmd(),
 
 		versionCmd(),
