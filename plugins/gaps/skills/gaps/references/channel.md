@@ -25,7 +25,7 @@ responsibilities.
 Two invocation forms:
 
 1. **Subsequent (manifest exists)**, `/gaps channel <channel-name>`. Resolves the name to a channel_id via `disctrack channel <name>`.
-2. **First time (bootstrap)**, `/gaps channel <channel-name> <discord-url>`. The first positional is the name to register, and the second is a Discord channel URL (e.g. `https://discord.com/channels/931580580255125514/1116447544269082676`). Parse the URL via `disctrack url`, write a minimum `<channels-dir>/<channel-name>.yaml` stub and the area folder, then bail with an instruction to run `disctrack sync <name>` first. A raw channel_id (all digits) is accepted as a second arg for back-compat, though a URL is preferred because it carries both guild and channel and is copy-pasted straight from Discord.
+2. **First time (bootstrap)**, `/gaps channel <channel-name> <discord-url>`. The first positional is the name to register, and the second is a Discord channel URL (e.g. `https://discord.com/channels/931580580255125514/1116447544269082676`). Bootstrap is one command, `disctrack onboard <channel-name> <discord-url>`, which writes the manifest and the area folder. Then bail with an instruction to run `disctrack sync <name>` first. A raw channel_id (all digits) is accepted as a second arg for back-compat, though a URL is preferred because it carries both guild and channel and is copy-pasted straight from Discord.
 
 If the user wanted fresh data, they should have run `disctrack sync <channel-name>` before invoking this mode. It never spawns the Playwright scraper.
 
@@ -51,31 +51,23 @@ Run `disctrack channel <name>` to look up the channel_id from the manifest.
   - **Second positional arg passed** (bootstrap form), so proceed to bootstrap below.
   - **No second arg**, so surface disctrack's error to the user verbatim (it already includes available channels). Append: `to bootstrap a new channel: /gaps channel <name> <discord-url>`. Do not attempt sync, do not write CURRENT_GAPS.md, do not create stubs.
 
-**Bootstrap path**, second arg present:
+**Bootstrap path**, second arg present. Run:
 
-- If second arg matches `https?://(discord|discordapp)\.com/channels/...`, run `disctrack url <arg>` → stdout is `"<guild-id> <channel-id>"`. Use the channel-id.
-- If second arg is all digits, accept it as the channel-id (back-compat).
-- Otherwise: error out, instruct the user to pass a Discord URL.
-
-Write the manifest:
-
-```yaml
-# <channels-dir>/<name>.yaml
-name: <name>
-channel_id: "<channel-id>"
-display_name: "<name>"          # human can refine; sync may auto-update later
-status: active
-kind: text                       # text | thread | forum; default text
-# parent_channel: <name>         # set when kind: thread; references another channel by name or id
-baseline_window: 4w
-tags: []
-notes: |
-  Bootstrapped on YYYY-MM-DD via /gaps channel.
+```bash
+disctrack onboard <name> <discord-url-or-channel-id>
 ```
 
-For Discord threads: write the same manifest by hand with `kind: thread` and `parent_channel: <parent-name>`. Once present, `disctrack threads list <parent>` will surface it, and ingest writes the parent's channel_id into the `parent_channel_id` column on each message row.
+`disctrack onboard` does the whole bootstrap and refuses rather than overwrite:
 
-Then determine the area folder. If `<areas-dir>/<name>/` doesn't exist, create it with a minimal `README.md` skeleton (headings only, meaning Summary / Status / Strategy / Next steps / When you come back). The skill is bootstrapping the entire tracked-channel layout in one shot.
+- It parses channel URLs and thread URLs (`.../channels/<guild>/<parent>/threads/<thread>`), and accepts a bare channel id.
+- It refuses a URL whose guild is not `discord.guild_id`, a name whose `<channels-dir>/<name>.yaml` already exists, and a channel id another manifest already tracks (the error names that manifest).
+- It writes `<channels-dir>/<name>.yaml` in the current schema (`name`, `channel_id`, `display_name`, `status: active`, `kind`, `baseline_window: 4w`, `tags`, and a `notes` line recording the onboard date).
+- For a text channel it creates `<areas-dir>/<name>/README.md` with the heading-only skeleton (Summary / Status / Strategy / Next steps / When you come back) when the folder is missing. `--area <folder>` sets `area_folder:` to a different folder instead.
+- For a thread URL it writes `kind: thread` and `parent_channel: <parent-name>`, and creates no area folder. The parent must already be tracked. If it isn't, onboard prints the `disctrack onboard` command for the parent. `--parent <name>` covers a thread URL or id without the parent segment.
+
+Surface any refusal to the user verbatim and stop. Pass `--dry-run` first if the user wants to see the manifest before it is written.
+
+Threads rarely need onboarding by hand. `disctrack sync <parent>` finds every thread started in the parent, writes a manifest for each untracked one, and syncs them all (see Gotchas).
 
 After bootstrap (or with an existing manifest), determine area folder: explicit `area_folder` (legacy: `proposal_folder`) field in channel.yaml, or `<areas-dir>/<channel-name>/`. Use `disctrack area <slug>` to verify the folder exists (exit 1 with did-you-mean if it doesn't). **If the folder doesn't exist and we didn't just bootstrap it**, bail with disctrack's error.
 
@@ -141,6 +133,7 @@ When the user wants to refresh multiple channels:
 
 ```bash
 # Step 1: pre-sync sequentially (Playwright profile is single-tenant).
+# Each sync also covers that channel's threads.
 # Skip this if the local DB is already current.
 for ch in <ch1> <ch2> <ch3>; do
   disctrack sync "$ch"
@@ -157,5 +150,5 @@ The skill itself is single-channel and stateless across invocations, and the par
 
 - **Sync is a separate user step.** This mode never invokes `disctrack sync` and never opens the browser. The staleness warning in the step 5 summary tells the user when to re-sync.
 - **Area folder may not match channel name 1:1.** Channel `auth-wg-fine-grained-authz` maps to area folder `fine-grained-auth`, for example. Use the `area_folder:` (legacy: `proposal_folder:`) field in channel.yaml when they differ.
-- **Threads aren't synced.** Discord threads have their own channel IDs but channel.yaml does not enumerate them. Surface thread starts as "unsynced thread" findings under "Notes for next refresh".
+- **Threads sync with their parent.** `disctrack sync <parent>` tracks every thread started in the parent (it writes `<parent>-<title-slug>-thread.yaml` with `kind: thread`) and syncs all of the parent's active threads in the same browser session. Read thread activity with `disctrack threads list <parent>` and then `disctrack messages <thread-name>`. A thread whose id the parent sync could not capture shows up in the sync summary as `unresolved_markers` and in `disctrack threads discover <parent> --untracked`. Surface those under "Notes for next refresh". `--no-threads` on sync skips all of this.
 - **CURRENT_GAPS.md is the only artifact this mode writes.** Don't touch README, don't write state.md, don't create issues.

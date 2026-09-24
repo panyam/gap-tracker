@@ -38,6 +38,10 @@ snapshot.py path resolution (first hit wins):
   3. ldflag-baked default (set by 'make install-disctrack')
   4. python/snapshot.py relative to cwd
 
+snapshot.py runs via 'uv run' from its own directory with VIRTUAL_ENV
+unset, so a .venv (or an activated venv) where you run disctrack cannot
+change the interpreter uv picks.
+
 profile_dir resolution (the Chromium user-data-dir that holds the Discord
 login session):
   1. --profile-dir <path>

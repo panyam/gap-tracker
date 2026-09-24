@@ -42,7 +42,9 @@ rather than walking the symlink by hand:
 - `disctrack channel <name>` prints the channel_id from `<channels-dir>/<name>.yaml`
 - `disctrack channels-dir` / `disctrack areas-dir` print the absolute paths
 - `disctrack area <name>` prints the absolute area folder path (must exist)
-- `disctrack url <discord-url>` parses `https://discord.com/channels/<g>/<c>` and prints `"<g> <c>"`
+- `disctrack url <discord-url>` parses `https://discord.com/channels/<g>/<c>` and prints `"<g> <c>"` (for a thread URL, `<c>` is the thread's own id)
+- `disctrack onboard <name> <discord-url>` registers a new channel or thread: manifest plus area folder, refusing duplicates
+- `disctrack sync <name>` scrapes a channel into the local DB, then tracks and syncs its threads
 
 **No fallback to hardcoded paths.** If `disctrack config` fails, meaning no
 `.discord-tracking.yaml` is reachable from cwd, bail with its error message and

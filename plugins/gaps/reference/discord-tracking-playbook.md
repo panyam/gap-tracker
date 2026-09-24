@@ -14,7 +14,11 @@ disctrack channel <name>             # channel_id from <channels-dir>/<name>.yam
 disctrack channels-dir               # absolute channels directory path
 disctrack area <name>                # absolute area folder path (must exist); did-you-mean on miss
 disctrack areas-dir                  # absolute areas directory path
-disctrack url <discord-url>          # parses "https://discord.com/channels/<g>/<c>" → "<g> <c>"
+disctrack url <discord-url>          # parses "https://discord.com/channels/<g>/<c>" → "<g> <c>" (thread URL: <c> is the thread id)
+disctrack onboard <name> <url>       # writes <channels-dir>/<name>.yaml (+ area README skeleton), refuses duplicates
+disctrack sync <name>                # scrapes the channel, then auto-tracks and syncs its threads (--no-threads to skip)
+disctrack threads list <parent>      # tracked threads of a channel
+disctrack threads discover <parent>  # thread-start markers in the synced parent, tracked or not
 disctrack version                    # build metadata
 ```
 
@@ -116,6 +120,43 @@ Each tracked project (regardless of whether tracking is in-repo or a sibling rep
 ```
 
 The `channel-name` and `area-name` may differ (one channel may map to a differently-named area folder via `area_folder:` in channel.yaml — legacy: `proposal_folder:`).
+
+## Channel manifests
+
+`disctrack onboard <name> <discord-url>` writes a new manifest. Hand-writing one still works, and this is the shape onboard produces:
+
+```yaml
+# <channels-dir>/<name>.yaml
+name: <name>
+channel_id: "<channel-id>"
+display_name: "<name>"
+status: active                   # active | dormant | parked | resolved
+kind: text                       # text | thread | forum. Default text.
+# parent_channel: <parent-name>  # threads only. A manifest name or channel id.
+# area_folder: <folder>          # when the area folder is not <name>
+baseline_window: 4w
+tags: []
+notes: |
+  Onboarded on YYYY-MM-DD via disctrack onboard.
+```
+
+Onboard refuses a URL from another guild, an existing `<name>.yaml`, and a channel id that another manifest already tracks. A text channel also gets `<areas-dir>/<name>/README.md` with a heading-only skeleton when that folder is missing. A thread (a `/threads/` URL, or `--parent <name>`) gets `kind: thread` and `parent_channel`, and no area folder. Its parent must be tracked first.
+
+### Threads
+
+A Discord thread is its own channel with its own id, cursor and manifest. You rarely write thread manifests by hand. After `disctrack sync <parent>` ingests the parent, it:
+
+1. Finds the parent's "started a thread" markers. snapshot.py captures each marker's thread id during the parent scrape.
+2. Writes a manifest for every thread that no manifest tracks yet. The name is `<parent>-<title-slug>-thread`, with the last four digits of the thread id added on a name collision. `notes` records the title, who started it, when, and that it was auto-tracked.
+3. Syncs every `status: active` thread of the parent, new and old, in one browser session. A new thread starts five minutes before its marker, or at the parent's `--since` if that is later. An old thread resumes from its own cursor.
+
+A thread that fails to sync is reported in its own JSON line and in the closing `summary` line. It does not fail the parent or the other threads. `disctrack sync <thread-name>` retries one thread on its own. Markers whose thread id could not be captured count as `unresolved_markers` and usually resolve on the next parent sync.
+
+Older thread manifests use a `parent:` block (`channel_id`, `channel_name`) and no `kind:`. disctrack treats those as threads of that parent, so `threads list` and the thread sync include them.
+
+## Running the scraper
+
+`disctrack sync` runs `python/snapshot.py` from this repo through `uv run`, with the working directory set to the script's own folder and `VIRTUAL_ENV` removed from its environment. uv picks its interpreter from `VIRTUAL_ENV` and from any `.venv` in the working directory or above it, ahead of every other Python. A `.venv` built on another machine (a Mac venv in a repo mounted into a Linux container) used to fail the sync with `Exec format error` whenever disctrack ran from inside that repo. If the error comes back, look for an active or ancestor `.venv` of the wrong architecture next to snapshot.py itself.
 
 ## Style notes (apply to every committed file these skills write)
 

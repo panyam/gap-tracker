@@ -116,6 +116,13 @@ repo root (when the project IS the tracking repo, like `mcpcontrib`) or a
 `discord_tracking -> ../<project>-tracking` symlink to a sibling tracking
 repo (like `lilbattle`). See the playbook for layout details.
 
+Start tracking a channel with `disctrack onboard <name> <discord-url>`,
+which writes the channel manifest and the area folder, then pull it with
+`disctrack sync <name>`. Sync also tracks and syncs the channel's threads.
+The playbook covers the manifest shape, thread handling, and why the
+scraper runs from its own directory (a foreign-arch `.venv` in your cwd
+used to break it with "Exec format error").
+
 ## Config
 
 `<project>/config.json` declares the sources, target repo, and local
