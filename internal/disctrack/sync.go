@@ -9,6 +9,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strconv"
+	"strings"
 
 	"github.com/panyam/gap-tracker/internal/config"
 
@@ -52,6 +53,7 @@ type SyncResult struct {
 //
 // snapshot.py path resolution: opts overrides → config.Discord.SnapshotScript
 // → DefaultSnapshotScript (Makefile ldflag) → cwd-relative python/snapshot.py.
+// Thread syncs after a parent sync are a separate step: see SyncThreads.
 func (r *Resolved) Sync(opts SyncOptions, scriptOverride string) (SyncResult, error) {
 	if opts.Channel.ChannelID == "" {
 		return SyncResult{}, errors.New("sync: channel_id is required")
@@ -101,29 +103,12 @@ func (r *Resolved) Sync(opts SyncOptions, scriptOverride string) (SyncResult, er
 		}
 	}
 
-	scriptPath, err := r.resolveSnapshotScript(scriptOverride)
+	env, err := r.resolveScrapeEnv(opts.ProfileDir, scriptOverride)
 	if err != nil {
 		return SyncResult{}, err
 	}
 
-	guildID := r.Config.Discord.GuildID
-	if guildID == "" {
-		return SyncResult{}, errors.New("sync: discord.guild_id is required in .discord-tracking.yaml")
-	}
-
-	profileDir := opts.ProfileDir
-	if profileDir == "" {
-		profileDir = expandPath(r.Config.Discord.ProfileDir)
-	}
-	if profileDir == "" {
-		// Default to <tracking-root>/profiles/default and auto-create.
-		profileDir = filepath.Join(r.Root, "profiles", "default")
-		if err := os.MkdirAll(profileDir, 0o755); err != nil {
-			return SyncResult{}, fmt.Errorf("ensure profile dir: %w", err)
-		}
-	}
-
-	stats, oldest, newest, err := r.spawnSnapshotAndIngest(db, opts, scriptPath, guildID, profileDir, since)
+	stats, oldest, newest, err := r.spawnSnapshotAndIngest(db, opts, env, since)
 	if err != nil {
 		return SyncResult{}, err
 	}
@@ -151,6 +136,74 @@ func (r *Resolved) Sync(opts SyncOptions, scriptOverride string) (SyncResult, er
 	}, nil
 }
 
+// scrapeEnv is everything a snapshot.py invocation needs besides its
+// targets: the script, the guild, and the Chromium profile.
+type scrapeEnv struct {
+	ScriptPath string // absolute
+	GuildID    string
+	ProfileDir string // absolute
+}
+
+// resolveScrapeEnv resolves the snapshot script, guild id, and profile dir
+// for a sync. profileOverride is the --profile-dir flag. Paths come back
+// absolute because snapshot.py runs with its own directory as cwd (see
+// uvCommand), so a cwd-relative path would resolve against the wrong place.
+func (r *Resolved) resolveScrapeEnv(profileOverride, scriptOverride string) (scrapeEnv, error) {
+	scriptPath, err := r.resolveSnapshotScript(scriptOverride)
+	if err != nil {
+		return scrapeEnv{}, err
+	}
+	if abs, err := filepath.Abs(scriptPath); err == nil {
+		scriptPath = abs
+	}
+
+	guildID := r.Config.Discord.GuildID
+	if guildID == "" {
+		return scrapeEnv{}, errors.New("sync: discord.guild_id is required in .discord-tracking.yaml")
+	}
+
+	profileDir := profileOverride
+	if profileDir == "" {
+		profileDir = expandPath(r.Config.Discord.ProfileDir)
+	}
+	if profileDir == "" {
+		// Default to <tracking-root>/profiles/default and auto-create.
+		profileDir = filepath.Join(r.Root, "profiles", "default")
+		if err := os.MkdirAll(profileDir, 0o755); err != nil {
+			return scrapeEnv{}, fmt.Errorf("ensure profile dir: %w", err)
+		}
+	}
+	if abs, err := filepath.Abs(profileDir); err == nil {
+		profileDir = abs
+	}
+	return scrapeEnv{ScriptPath: scriptPath, GuildID: guildID, ProfileDir: profileDir}, nil
+}
+
+// uvCommand builds `uv run <script> <args...>` with the working directory
+// pinned to the script's own directory and VIRTUAL_ENV dropped from the
+// environment.
+//
+// uv picks its base interpreter from $VIRTUAL_ENV, then from a .venv in the
+// cwd or any ancestor, before it looks at managed or system Pythons, and
+// --python-preference / --no-project / --isolated do not change that. So a
+// foreign-arch .venv in whatever directory the caller ran disctrack from
+// (common when a repo is shared between a Mac and a Linux container) failed
+// the sync with "Exec format error" before snapshot.py started. Running from
+// the script's directory makes the caller's cwd irrelevant.
+func uvCommand(scriptPath string, args ...string) *exec.Cmd {
+	cmd := exec.Command("uv", append([]string{"run", scriptPath}, args...)...)
+	cmd.Dir = filepath.Dir(scriptPath)
+	env := make([]string, 0, len(os.Environ()))
+	for _, kv := range os.Environ() {
+		if strings.HasPrefix(kv, "VIRTUAL_ENV=") {
+			continue
+		}
+		env = append(env, kv)
+	}
+	cmd.Env = env
+	return cmd
+}
+
 func (r *Resolved) resolveSnapshotScript(override string) (string, error) {
 	candidates := []string{
 		override,
@@ -172,13 +225,13 @@ func (r *Resolved) resolveSnapshotScript(override string) (string, error) {
 func (r *Resolved) spawnSnapshotAndIngest(
 	db *gorm.DB,
 	opts SyncOptions,
-	scriptPath, guildID, profileDir, since string,
+	env scrapeEnv,
+	since string,
 ) (IngestStats, string, string, error) {
 	args := []string{
-		"run", scriptPath,
-		"--server-id", guildID,
+		"--server-id", env.GuildID,
 		"--channel", opts.Channel.ChannelID,
-		"--profile-dir", profileDir,
+		"--profile-dir", env.ProfileDir,
 	}
 	if opts.MaxIters > 0 {
 		args = append(args, "--max-iters", strconv.Itoa(opts.MaxIters))
@@ -190,7 +243,7 @@ func (r *Resolved) spawnSnapshotAndIngest(
 		args = append(args, "--headless")
 	}
 
-	cmd := exec.Command("uv", args...)
+	cmd := uvCommand(env.ScriptPath, args...)
 	stdout, err := cmd.StdoutPipe()
 	if err != nil {
 		return IngestStats{}, "", "", fmt.Errorf("pipe: %w", err)
