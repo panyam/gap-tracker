@@ -250,7 +250,7 @@ func (r *Resolved) LookupChannelDir(spec string) (string, error) {
 	}
 	dir := r.ChannelDir(m.Name)
 	if st, err := os.Stat(dir); err != nil || !st.IsDir() {
-		return "", fmt.Errorf("no docs folder at %s\n  create it with a README.md, or run /gaps channel %s to write CURRENT_GAPS.md there", dir, m.Name)
+		return "", fmt.Errorf("no docs folder at %s\n  create it (mkdir -p %s), or move this channel's existing docs there", dir, dir)
 	}
 	return dir, nil
 }
