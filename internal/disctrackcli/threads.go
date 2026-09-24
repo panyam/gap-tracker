@@ -225,9 +225,8 @@ func emitThreads(threads []disctrack.ChannelManifest, format string) error {
 		}
 	default: // yaml
 		// Marshal only the fields relevant to "threads list" so the output
-		// stays scannable. The full ChannelManifest carries some
-		// channel-management fields ("area_folder", legacy aliases) that
-		// aren't meaningful here.
+		// stays scannable. The full ChannelManifest carries legacy fields
+		// that aren't meaningful here.
 		view := make([]map[string]any, 0, len(threads))
 		for _, t := range threads {
 			row := map[string]any{

@@ -141,7 +141,7 @@ func cursorListCmd() *cobra.Command {
 			out := make([]map[string]any, 0, len(rows))
 			for _, c := range rows {
 				out = append(out, map[string]any{
-					"area":         c.Area,
+					"channel":      c.ChannelName,
 					"source_type":  c.SourceType,
 					"source_key":   c.SourceKey,
 					"cursor_value": c.CursorValue,

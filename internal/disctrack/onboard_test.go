@@ -33,8 +33,8 @@ notes: |
 	if plan.Manifest != want {
 		t.Errorf("manifest:\n%s\nwant:\n%s", plan.Manifest, want)
 	}
-	if plan.AreaPath != filepath.Join(r.AreasDir(), "gateways-ig") || !plan.AreaCreate {
-		t.Errorf("area: %+v", plan)
+	if plan.ChannelDir != filepath.Join(r.Root, "proposals", "gateways-ig") || !plan.ChannelDirCreate {
+		t.Errorf("channel dir: %+v", plan)
 	}
 	// Planning writes nothing.
 	if _, err := os.Stat(plan.ManifestPath); !os.IsNotExist(err) {
@@ -51,7 +51,7 @@ notes: |
 	if m.ChannelID != "222" || m.IsThread() || m.Status != "active" {
 		t.Errorf("round trip: %+v", m)
 	}
-	readme, err := os.ReadFile(filepath.Join(r.AreasDir(), "gateways-ig", "README.md"))
+	readme, err := os.ReadFile(filepath.Join(r.GapsDir(), "gateways-ig", "README.md"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -62,24 +62,26 @@ notes: |
 	}
 }
 
-func TestPlanOnboard_AreaFlagAndExistingFolder(t *testing.T) {
+func TestPlanOnboard_ExistingFolderKept(t *testing.T) {
 	r, _ := newTestRoot(t)
-	existing := r.AreaPath("fine-grained-auth")
+	existing := r.ChannelDir("fine-grained-auth")
 	if err := os.MkdirAll(existing, 0o755); err != nil {
 		t.Fatal(err)
 	}
 	if err := os.WriteFile(filepath.Join(existing, "README.md"), []byte("# keep me\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	plan, err := r.PlanOnboard(OnboardOptions{Name: "auth-wg-fga", Ref: "222", Area: "fine-grained-auth"})
+	plan, err := r.PlanOnboard(OnboardOptions{Name: "fine-grained-auth", Ref: "222"})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if plan.AreaCreate || plan.AreaPath != existing {
-		t.Errorf("want existing area reused, got %+v", plan)
+	if plan.ChannelDirCreate || plan.ChannelDir != existing {
+		t.Errorf("want existing folder reused, got %+v", plan)
 	}
-	if !strings.Contains(plan.Manifest, "area_folder: fine-grained-auth\n") {
-		t.Errorf("manifest missing area_folder:\n%s", plan.Manifest)
+	for _, key := range []string{"area_folder", "proposal_folder"} {
+		if strings.Contains(plan.Manifest, key) {
+			t.Errorf("manifest carries %s:\n%s", key, plan.Manifest)
+		}
 	}
 	if err := r.ApplyOnboard(plan); err != nil {
 		t.Fatal(err)
@@ -87,13 +89,6 @@ func TestPlanOnboard_AreaFlagAndExistingFolder(t *testing.T) {
 	b, _ := os.ReadFile(filepath.Join(existing, "README.md"))
 	if string(b) != "# keep me\n" {
 		t.Errorf("existing README touched: %q", b)
-	}
-	m, _, _ := r.LoadChannel("auth-wg-fga")
-	if m.AreaSlug() != "fine-grained-auth" {
-		t.Errorf("AreaSlug = %q", m.AreaSlug())
-	}
-	if _, err := os.Stat(r.AreaPath("auth-wg-fga")); !os.IsNotExist(err) {
-		t.Errorf("created an area folder under the channel name too")
 	}
 }
 
@@ -110,8 +105,8 @@ func TestPlanOnboard_Thread(t *testing.T) {
 	if plan.Kind != ChannelKindThread || plan.ParentName != "mcp-apps-wg" || plan.ChannelID != "444" {
 		t.Errorf("plan: %+v", plan)
 	}
-	if plan.AreaPath != "" || plan.AreaCreate {
-		t.Errorf("thread got an area folder: %+v", plan)
+	if plan.ChannelDir != "" || plan.ChannelDirCreate {
+		t.Errorf("thread got a docs folder: %+v", plan)
 	}
 	if !strings.Contains(plan.Manifest, "kind: thread\nparent_channel: mcp-apps-wg\n") {
 		t.Errorf("manifest:\n%s", plan.Manifest)
@@ -119,8 +114,8 @@ func TestPlanOnboard_Thread(t *testing.T) {
 	if err := r.ApplyOnboard(plan); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := os.Stat(r.AreasDir()); !os.IsNotExist(err) {
-		t.Errorf("thread onboard created areas dir")
+	if _, err := os.Stat(r.GapsDir()); !os.IsNotExist(err) {
+		t.Errorf("thread onboard created the gaps dir")
 	}
 	threads, _ := r.ListThreads("mcp-apps-wg")
 	if len(threads) != 1 || threads[0].Name != "mcp-apps-wg-pip-thread" {
@@ -168,9 +163,7 @@ func TestPlanOnboard_Refusals(t *testing.T) {
 		{"unknown --parent", OnboardOptions{Name: "x", Ref: "777", Parent: "nope"}, "--parent"},
 		{"--parent disagrees with url", OnboardOptions{Name: "x", Ref: "https://discord.com/channels/111/222/threads/777", Parent: "other"}, "URL's parent is 222"},
 		{"parent is a thread", OnboardOptions{Name: "x", Ref: "777", Parent: "mcp-apps-wg-old-thread"}, "do not nest"},
-		{"area on a thread", OnboardOptions{Name: "x", Ref: "https://discord.com/channels/111/222/threads/777", Area: "a"}, "--area does not apply"},
 		{"bad name", OnboardOptions{Name: "../x", Ref: "777"}, "invalid channel name"},
-		{"bad area", OnboardOptions{Name: "x", Ref: "777", Area: "a/b"}, "invalid --area"},
 		{"not a url", OnboardOptions{Name: "x", Ref: "general"}, "not a Discord channel URL"},
 	}
 	for _, c := range cases {

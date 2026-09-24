@@ -11,8 +11,8 @@
 //	  disctrack config
 //	  disctrack channel <name>           prints channel_id
 //	  disctrack channels-dir             prints absolute channels directory
-//	  disctrack area <name>              prints absolute area folder path
-//	  disctrack areas-dir                prints absolute areas directory
+//	  disctrack gaps-dir                 prints absolute gaps directory
+//	  disctrack dir <channel>            prints <gaps-dir>/<channel> (must exist)
 //	  disctrack url <discord-url>        prints "<guild_id> <channel_id>"
 //	  disctrack db-path                  prints <tracking-root>/messages.db
 //
@@ -26,8 +26,9 @@
 //	  disctrack threads list <parent-channel-name-or-id> [-o fmt]
 //
 //	Onboarding:
-//	  disctrack onboard <name> <discord-url> [--parent P] [--area A] [--sync]
-//	    Writes the channel manifest (+ area README skeleton for text channels).
+//	  disctrack onboard <name> <discord-url> [--parent P] [--sync]
+//	    Writes the channel manifest (+ <gaps-dir>/<name>/README.md skeleton
+//	    for non-thread channels).
 //
 //	Scrape orchestration:
 //	  disctrack sync <channel-name-or-id> [--max-iters N] [--no-threads]
@@ -112,8 +113,8 @@ func Execute() {
 		configCmd(),
 		channelCmd(),
 		channelsDirCmd(),
-		areaCmd(),
-		areasDirCmd(),
+		gapsDirCmd(),
+		dirCmd(),
 		urlCmd(),
 		dbPathCmd(),
 

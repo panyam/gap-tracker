@@ -18,7 +18,7 @@ func configCmd() *cobra.Command {
 			c := r.Config
 			fmt.Printf("tracking_root:    %s\n", r.Root)
 			fmt.Printf("channels_dir:     %s\n", r.ChannelsDir())
-			fmt.Printf("areas_dir:        %s\n", r.AreasDir())
+			fmt.Printf("gaps_dir:         %s\n", r.GapsDir())
 			fmt.Printf("code.name:        %s\n", c.Code.Name)
 			fmt.Printf("code.repo:        %s\n", c.Code.Repo)
 			fmt.Printf("code.worktree:    %s\n", c.Code.DefaultWorktree)

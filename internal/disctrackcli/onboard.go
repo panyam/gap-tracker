@@ -11,7 +11,6 @@ import (
 
 var (
 	onboardParent   string
-	onboardArea     string
 	onboardDryRun   bool
 	onboardSync     bool
 	onboardSince    int
@@ -22,10 +21,11 @@ var (
 func onboardCmd() *cobra.Command {
 	c := &cobra.Command{
 		Use:   "onboard <name> <discord-url>",
-		Short: "Start tracking a Discord channel or thread: write its manifest and area folder",
+		Short: "Start tracking a Discord channel or thread: write its manifest and docs folder",
 		Long: `Registers a Discord channel (or thread) under <name>. Writes
-<channels-dir>/<name>.yaml and, for a text channel, creates <areas-dir>/<name>/
-with a heading-only README.md if the folder does not exist yet.
+<channels-dir>/<name>.yaml and, for a non-thread channel, creates
+<gaps-dir>/<name>/ with a heading-only README.md if the folder does not
+exist yet. Every tracked channel owns exactly that one folder.
 
 <discord-url> is what Discord's "Copy Link" gives you:
 
@@ -38,7 +38,7 @@ discord.guild_id in .discord-tracking.yaml.
 A /threads/ URL writes a thread manifest (kind: thread) whose parent_channel
 is the tracked manifest for the parent id. The parent must already be
 tracked. For a thread URL without the parent segment, or a bare thread id,
-pass --parent <name>. Threads get no area folder: they read under their
+pass --parent <name>. Threads get no docs folder: they read under their
 parent's. Once a parent is tracked, 'disctrack sync <parent>' tracks and
 syncs its new threads on its own, so onboarding threads by hand is rarely
 needed.
@@ -46,16 +46,11 @@ needed.
 onboard refuses when <name>.yaml exists or when another manifest already
 tracks the channel id. It never overwrites a file.
 
---area <folder> points area_folder at an existing (or differently-named)
-folder instead of <areas-dir>/<name>. The folder is created with the README
-skeleton if missing.
-
 --sync runs 'disctrack sync <name>' right after writing, with --since,
 --headless and --max-iters passed through. --dry-run prints the manifest and
 paths without writing anything or opening the browser.
 
   disctrack onboard mcp-apps-wg https://discord.com/channels/1358869848138059966/1376635661989449820
-  disctrack onboard fine-grained-authz <url> --area fine-grained-auth
   disctrack onboard mcp-apps-wg-pip-mode-thread https://discord.com/channels/<g>/<parent>/threads/<t>
   disctrack onboard gateways-ig <url> --sync --headless --since 40320`,
 		Args: cobra.ExactArgs(2),
@@ -71,7 +66,6 @@ paths without writing anything or opening the browser.
 				Name:   args[0],
 				Ref:    args[1],
 				Parent: onboardParent,
-				Area:   onboardArea,
 			})
 			if err != nil {
 				return err
@@ -108,7 +102,6 @@ paths without writing anything or opening the browser.
 		},
 	}
 	c.Flags().StringVar(&onboardParent, "parent", "", "Tracked parent channel (name or id); makes this a thread")
-	c.Flags().StringVar(&onboardArea, "area", "", "Area folder under the areas dir to use instead of <name> (text channels only)")
 	c.Flags().BoolVar(&onboardDryRun, "dry-run", false, "Print the manifest and paths; write nothing")
 	c.Flags().BoolVar(&onboardSync, "sync", false, "Run 'disctrack sync <name>' after writing")
 	c.Flags().IntVar(&onboardSince, "since", 0, "With --sync: sync messages from the last N minutes (0 = cold start)")
@@ -125,15 +118,15 @@ func printOnboardPlan(plan *disctrack.OnboardPlan, dryRun bool) {
 	fmt.Printf("%s channel manifest: %s\n", verb, plan.ManifestPath)
 	switch {
 	case plan.Kind == disctrack.ChannelKindThread:
-		fmt.Printf("thread of:          %s (no area folder for threads)\n", plan.ParentName)
-	case plan.AreaCreate:
+		fmt.Printf("thread of:          %s (threads read under the parent's folder)\n", plan.ParentName)
+	case plan.ChannelDirCreate:
 		verb := "created"
 		if dryRun {
 			verb = "would create"
 		}
-		fmt.Printf("%s area folder: %s (README.md skeleton)\n", verb, plan.AreaPath)
+		fmt.Printf("%s docs folder: %s (README.md skeleton)\n", verb, plan.ChannelDir)
 	default:
-		fmt.Printf("area folder:        %s (exists, left as is)\n", plan.AreaPath)
+		fmt.Printf("docs folder:        %s (exists, left as is)\n", plan.ChannelDir)
 	}
 	fmt.Println()
 	fmt.Print(indent(plan.Manifest, "  "))

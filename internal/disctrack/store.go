@@ -45,12 +45,14 @@ type Message struct {
 
 func (Message) TableName() string { return "messages" }
 
-// Cursor tracks how far a given (area, source_type, source_key) tuple has
+// Cursor tracks how far a given (channel, source_type, source_key) tuple has
 // been synced. For Discord the source_type is "discord" and source_key is
-// the channel_id; area is the channel name (or id when unknown). PR-side
-// cursors are tracked elsewhere (gapt).
+// the channel_id. ChannelName is the channel name (or id when unknown). Its
+// column keeps the historical name "area" because the table is shared with
+// mcpcontribd and renaming a primary-key column needs a table rebuild.
+// PR-side cursors are tracked elsewhere (gapt).
 type Cursor struct {
-	Area        string `gorm:"primaryKey;column:area"`
+	ChannelName string `gorm:"primaryKey;column:area"`
 	SourceType  string `gorm:"primaryKey;column:source_type"`
 	SourceKey   string `gorm:"primaryKey;column:source_key"`
 	CursorValue string `gorm:"column:cursor_value;not null"`

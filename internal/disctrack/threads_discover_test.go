@@ -74,7 +74,7 @@ func TestDiscoverThreads(t *testing.T) {
 	if err := os.MkdirAll(channels, 0o755); err != nil {
 		t.Fatal(err)
 	}
-	r := &Resolved{Root: root, Config: Config{ChannelsDir: "channels", AreasDir: "areas"}}
+	r := &Resolved{Root: root, Config: Config{ChannelsDir: "channels", GapsDir: "proposals"}}
 
 	writeManifest(t, channels, "parent", "name: parent\nchannel_id: \"100\"\n")
 	// One tracked thread (id 200) and a manifest that should be matched by id.
@@ -137,7 +137,7 @@ func TestDiscoverThreads_TitleFallbackMatch(t *testing.T) {
 	if err := os.MkdirAll(channels, 0o755); err != nil {
 		t.Fatal(err)
 	}
-	r := &Resolved{Root: root, Config: Config{ChannelsDir: "channels", AreasDir: "areas"}}
+	r := &Resolved{Root: root, Config: Config{ChannelsDir: "channels", GapsDir: "proposals"}}
 	writeManifest(t, channels, "parent", "name: parent\nchannel_id: \"100\"\n")
 	// Tracked manifest exists but the marker row predates id capture; match by title.
 	writeManifest(t, channels, "parent-vthread",

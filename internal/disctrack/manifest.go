@@ -11,14 +11,21 @@ import (
 )
 
 // ChannelManifest is the per-channel yaml at <channels-dir>/<name>.yaml.
-// Only the fields disctrack reads are modelled; unknown keys are tolerated.
+// Only the fields disctrack reads are modelled. Unknown keys are tolerated,
+// which covers the fields only the /gaps skill reads (worktree, repo,
+// default_label, related_channels, spec_prs, ext_repos, references,
+// mcpconformance, mcpkit/code paths, gapt). The playbook documents them.
 type ChannelManifest struct {
-	Name           string `yaml:"name"`
-	ChannelID      string `yaml:"channel_id"`
-	DisplayName    string `yaml:"display_name"`
-	Status         string `yaml:"status"`
-	AreaFolder     string `yaml:"area_folder"`
-	ProposalFolder string `yaml:"proposal_folder"` // legacy alias of AreaFolder
+	Name        string `yaml:"name"`
+	ChannelID   string `yaml:"channel_id"`
+	DisplayName string `yaml:"display_name"`
+	Status      string `yaml:"status"`
+
+	// LegacyAreaFolder and LegacyProposalFolder are the removed folder
+	// indirection. A channel's folder is always <gaps-dir>/<name>, so
+	// LoadChannel rejects a manifest whose value points anywhere else.
+	LegacyAreaFolder     string `yaml:"area_folder" json:"-"`
+	LegacyProposalFolder string `yaml:"proposal_folder" json:"-"`
 
 	// Kind is the Discord channel kind. Empty defaults to "text". Other
 	// values: "thread" (a thread under a parent channel), "forum"
@@ -99,16 +106,28 @@ const (
 	ChannelKindForum  = "forum"
 )
 
-// AreaSlug returns the area folder name for this channel: AreaFolder if set,
-// then ProposalFolder (legacy), else Name.
-func (m *ChannelManifest) AreaSlug() string {
-	if m.AreaFolder != "" {
-		return m.AreaFolder
+// checkLegacyFolder rejects a manifest that still points area_folder or
+// proposal_folder at a folder other than its own. A value equal to the
+// manifest name is harmless and ignored, so a half-migrated root keeps
+// working. A thread may also name its parent, which is where its chatter
+// already lands.
+func (m *ChannelManifest) checkLegacyFolder(path string) error {
+	for _, f := range []struct{ key, val string }{
+		{"area_folder", m.LegacyAreaFolder},
+		{"proposal_folder", m.LegacyProposalFolder},
+	} {
+		if f.val == "" || f.val == m.Name {
+			continue
+		}
+		if m.IsThread() && f.val == m.ParentChannel {
+			continue
+		}
+		return fmt.Errorf("%s: %s: %s is no longer supported. "+
+			"A channel's docs folder is always <gaps_dir>/<name>, here %q. "+
+			"Move the folder to match the channel name (or rename the channel), then delete the %s line",
+			path, f.key, f.val, m.Name, f.key)
 	}
-	if m.ProposalFolder != "" {
-		return m.ProposalFolder
-	}
-	return m.Name
+	return nil
 }
 
 // LoadChannel reads <channels-dir>/<name>.yaml. On miss, returns a nil
@@ -130,6 +149,9 @@ func (r *Resolved) LoadChannel(name string) (*ChannelManifest, []string, error) 
 		m.Name = name
 	}
 	m.normalizeLegacyParent()
+	if err := m.checkLegacyFolder(path); err != nil {
+		return nil, nil, err
+	}
 	return &m, nil, nil
 }
 
@@ -148,12 +170,6 @@ func (r *Resolved) ListChannels() []string {
 	}
 	sort.Strings(out)
 	return out
-}
-
-// AreaPath returns the absolute path of <areas-dir>/<name>. Does NOT verify
-// existence; callers that need that should stat the returned path.
-func (r *Resolved) AreaPath(name string) string {
-	return filepath.Join(r.AreasDir(), name)
 }
 
 // ListThreads returns every thread manifest whose parent matches the given
@@ -213,20 +229,28 @@ func (r *Resolved) ResolveParentChannelID(m *ChannelManifest) string {
 	return parent.ChannelID
 }
 
-// ListAreas returns sorted area folder names, excluding meta dirs (those
-// starting with "_" like _groups).
-func (r *Resolved) ListAreas() []string {
-	entries, err := os.ReadDir(r.AreasDir())
+// LookupChannelDir returns the absolute docs folder of a tracked non-thread
+// channel, <gaps-dir>/<name>. spec is a manifest name or a channel id. It
+// errors when the channel is untracked, when it is a thread (threads read
+// under their parent's folder), and when the folder does not exist yet.
+func (r *Resolved) LookupChannelDir(spec string) (string, error) {
+	cs, err := r.ResolveChannelSpec(spec)
 	if err != nil {
-		return nil
+		return "", err
 	}
-	out := make([]string, 0, len(entries))
-	for _, e := range entries {
-		if !e.IsDir() || strings.HasPrefix(e.Name(), "_") {
-			continue
-		}
-		out = append(out, e.Name())
+	if cs.Name == "" {
+		return "", fmt.Errorf("channel %s is not tracked: no manifest under %s has that channel_id", spec, r.ChannelsDir())
 	}
-	sort.Strings(out)
-	return out
+	m, _, err := r.LoadChannel(cs.Name)
+	if err != nil {
+		return "", err
+	}
+	if m.IsThread() {
+		return "", fmt.Errorf("%s is a thread and has no docs folder of its own: use its parent, disctrack dir %s", m.Name, m.ParentChannel)
+	}
+	dir := r.ChannelDir(m.Name)
+	if st, err := os.Stat(dir); err != nil || !st.IsDir() {
+		return "", fmt.Errorf("no docs folder at %s\n  create it with a README.md, or run /gaps channel %s to write CURRENT_GAPS.md there", dir, m.Name)
+	}
+	return dir, nil
 }

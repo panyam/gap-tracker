@@ -10,8 +10,8 @@ import (
 )
 
 // manifestName is what a channel name may look like. It becomes a filename
-// (<channels-dir>/<name>.yaml) and usually an area folder, so no slashes or
-// leading dots.
+// (<channels-dir>/<name>.yaml) and, for a non-thread channel, the docs folder
+// <gaps-dir>/<name>, so no slashes or leading dots.
 var manifestName = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._-]*$`)
 
 // OnboardOptions is one `disctrack onboard` request.
@@ -24,9 +24,6 @@ type OnboardOptions struct {
 	// the URL has no /threads/ segment. Must agree with the URL's parent
 	// segment when both are given.
 	Parent string
-	// Area points area_folder at an existing or differently-named folder
-	// instead of <areas-dir>/<name>. Not allowed for threads.
-	Area string
 	// Now stamps the notes line. Zero means time.Now().
 	Now time.Time
 }
@@ -41,12 +38,12 @@ type OnboardPlan struct {
 	ParentName   string `json:"parent_channel,omitempty"`
 	ManifestPath string `json:"manifest"`
 	Manifest     string `json:"-"`
-	// AreaPath is the area folder the manifest resolves to. Empty for
-	// threads, which get no area folder.
-	AreaPath string `json:"area,omitempty"`
-	// AreaCreate is true when AreaPath does not exist yet and ApplyOnboard
-	// will create it with the README skeleton.
-	AreaCreate bool `json:"area_created"`
+	// ChannelDir is the channel's docs folder, <gaps-dir>/<name>. Empty for
+	// threads, which read under their parent's folder.
+	ChannelDir string `json:"dir,omitempty"`
+	// ChannelDirCreate is true when ChannelDir does not exist yet and
+	// ApplyOnboard will create it with the README skeleton.
+	ChannelDirCreate bool `json:"dir_created"`
 }
 
 // PlanOnboard validates an onboard request and renders the manifest. It
@@ -85,9 +82,6 @@ func (r *Resolved) PlanOnboard(opts OnboardOptions) (*OnboardPlan, error) {
 
 	isThread := ref.IsThreadURL() || opts.Parent != ""
 	if isThread {
-		if opts.Area != "" {
-			return nil, errors.New("--area does not apply to threads: a thread reads under its parent's area folder")
-		}
 		parentName, err := r.resolveOnboardParent(ref, opts.Parent, guild)
 		if err != nil {
 			return nil, err
@@ -95,15 +89,8 @@ func (r *Resolved) PlanOnboard(opts OnboardOptions) (*OnboardPlan, error) {
 		plan.Kind = ChannelKindThread
 		plan.ParentName = parentName
 	} else {
-		folder := opts.Name
-		if opts.Area != "" {
-			if !manifestName.MatchString(opts.Area) {
-				return nil, fmt.Errorf("invalid --area %q: a folder name under %s, not a path", opts.Area, r.AreasDir())
-			}
-			folder = opts.Area
-		}
-		plan.AreaPath = r.AreaPath(folder)
-		plan.AreaCreate = !pathExists(plan.AreaPath)
+		plan.ChannelDir = r.ChannelDir(opts.Name)
+		plan.ChannelDirCreate = !pathExists(plan.ChannelDir)
 	}
 
 	now := opts.Now
@@ -117,9 +104,6 @@ func (r *Resolved) PlanOnboard(opts OnboardOptions) (*OnboardPlan, error) {
 		Kind:          plan.Kind,
 		ParentChannel: plan.ParentName,
 		Notes:         fmt.Sprintf("Onboarded on %s via disctrack onboard.", now.Format("2006-01-02")),
-	}
-	if opts.Area != "" {
-		fields.AreaFolder = opts.Area
 	}
 	plan.Manifest = renderManifest(fields)
 	return plan, nil
@@ -177,8 +161,8 @@ func (r *Resolved) resolveOnboardParent(ref DiscordRef, parentFlag, guild string
 	return name, nil
 }
 
-// ApplyOnboard writes the manifest and, for a text channel whose area folder
-// is missing, the README skeleton. It re-checks that the manifest does not
+// ApplyOnboard writes the manifest and, for a non-thread channel whose docs
+// folder is missing, the README skeleton. It re-checks that the manifest does not
 // exist so a racing onboard cannot clobber it.
 func (r *Resolved) ApplyOnboard(plan *OnboardPlan) error {
 	if err := os.MkdirAll(filepath.Dir(plan.ManifestPath), 0o755); err != nil {
@@ -187,21 +171,21 @@ func (r *Resolved) ApplyOnboard(plan *OnboardPlan) error {
 	if err := writeNewFile(plan.ManifestPath, plan.Manifest); err != nil {
 		return err
 	}
-	if plan.AreaCreate {
-		if err := os.MkdirAll(plan.AreaPath, 0o755); err != nil {
-			return fmt.Errorf("create area folder: %w", err)
+	if plan.ChannelDirCreate {
+		if err := os.MkdirAll(plan.ChannelDir, 0o755); err != nil {
+			return fmt.Errorf("create channel folder: %w", err)
 		}
-		readme := filepath.Join(plan.AreaPath, "README.md")
-		if err := writeNewFile(readme, areaReadmeSkeleton(filepath.Base(plan.AreaPath))); err != nil {
+		readme := filepath.Join(plan.ChannelDir, "README.md")
+		if err := writeNewFile(readme, channelReadmeSkeleton(filepath.Base(plan.ChannelDir))); err != nil {
 			return err
 		}
 	}
 	return nil
 }
 
-// areaReadmeSkeleton is the heading-only README a fresh area folder gets.
-// The /gaps skill fills it in after the first refresh.
-func areaReadmeSkeleton(title string) string {
+// channelReadmeSkeleton is the heading-only README a fresh channel folder
+// gets. The /gaps skill fills it in after the first refresh.
+func channelReadmeSkeleton(title string) string {
 	return fmt.Sprintf(`# %s
 
 ## Summary

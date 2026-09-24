@@ -63,11 +63,6 @@ func (r *Resolved) Sync(opts SyncOptions, scriptOverride string) (SyncResult, er
 		return SyncResult{}, err
 	}
 
-	area := opts.Channel.Name
-	if area == "" {
-		area = opts.Channel.ChannelID
-	}
-
 	// Read the existing cursor up front for the advance-only-if-newer check
 	// below. Separate from `since` so a --since override (a re-pull window)
 	// can't regress the cursor when newest < currentCursor.

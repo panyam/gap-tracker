@@ -21,13 +21,20 @@ const SymlinkName = "discord_tracking"
 // Config is the schema of <tracking-root>/.discord-tracking.yaml. Fields
 // match the playbook (gap-tracker/plugins/gaps/reference/discord-tracking-playbook.md).
 type Config struct {
-	ChannelsDir string         `yaml:"channels_dir"`
-	AreasDir    string         `yaml:"areas_dir"`
-	GroupsDir   string         `yaml:"groups_dir"`
-	Discord     DiscordSection `yaml:"discord"`
-	Code        CodeSection    `yaml:"code"`
-	Gapt        GaptSection    `yaml:"gapt"`
-	SyncTool    SyncToolSec    `yaml:"sync_tool"`
+	ChannelsDir string `yaml:"channels_dir"`
+
+	// GapsDir holds one docs folder per tracked non-thread channel, at
+	// <gaps_dir>/<channel-name>/. Defaults to "proposals".
+	GapsDir string `yaml:"gaps_dir"`
+
+	// LegacyAreasDir is the pre-channel-model name of GapsDir. Read only as
+	// a fallback when gaps_dir is unset, with a deprecation warning.
+	LegacyAreasDir string `yaml:"areas_dir"`
+
+	Discord  DiscordSection `yaml:"discord"`
+	Code     CodeSection    `yaml:"code"`
+	Gapt     GaptSection    `yaml:"gapt"`
+	SyncTool SyncToolSec    `yaml:"sync_tool"`
 }
 
 type DiscordSection struct {
@@ -45,19 +52,13 @@ type DiscordSection struct {
 	// so the existing session keeps working.
 	ProfileDir string `yaml:"profile_dir"`
 
-	// ParseSnapshotScript is a legacy alias used by /area-refresh's older
-	// Playwright path. Distinct from SnapshotScript above. Kept so the old
-	// skill keeps resolving without an .discord-tracking.yaml rewrite.
-	ParseSnapshotScript string `yaml:"parse_snapshot_script"`
-
 	SetupDoc string `yaml:"setup_doc"`
 }
 
 type CodeSection struct {
-	Name                string `yaml:"name"`
-	Repo                string `yaml:"repo"`
-	DefaultWorktree     string `yaml:"default_worktree"`
-	AreaRefreshCheckout string `yaml:"area_refresh_checkout"`
+	Name            string `yaml:"name"`
+	Repo            string `yaml:"repo"`
+	DefaultWorktree string `yaml:"default_worktree"`
 }
 
 type GaptSection struct {
@@ -134,23 +135,33 @@ func loadResolved(root string) (*Resolved, error) {
 	if err := yaml.Unmarshal(raw, &cfg); err != nil {
 		return nil, fmt.Errorf("parse %s: %w", ConfigFile, err)
 	}
-	applyDefaults(&cfg)
+	if w := applyDefaults(&cfg); w != "" {
+		fmt.Fprintf(os.Stderr, "warning: %s: %s\n", filepath.Join(root, ConfigFile), w)
+	}
 	return &Resolved{Root: root, Config: cfg}, nil
 }
 
-func applyDefaults(c *Config) {
+// DefaultGapsDir is gaps_dir when neither it nor the legacy areas_dir is set.
+const DefaultGapsDir = "proposals"
+
+// applyDefaults fills unset fields. It returns a deprecation warning when
+// the legacy areas_dir key supplied the gaps dir, empty otherwise.
+func applyDefaults(c *Config) string {
+	var warning string
 	if c.ChannelsDir == "" {
 		c.ChannelsDir = "channels"
 	}
-	if c.AreasDir == "" {
-		c.AreasDir = "areas"
+	if c.GapsDir == "" && c.LegacyAreasDir != "" {
+		c.GapsDir = c.LegacyAreasDir
+		warning = "areas_dir is deprecated, rename it to gaps_dir"
 	}
-	if c.GroupsDir == "" {
-		c.GroupsDir = "_groups"
+	if c.GapsDir == "" {
+		c.GapsDir = DefaultGapsDir
 	}
 	if c.SyncTool.Command == "" {
 		c.SyncTool.Command = "mcpcontribd"
 	}
+	return warning
 }
 
 // ChannelsDir returns the absolute channels directory path.
@@ -158,14 +169,15 @@ func (r *Resolved) ChannelsDir() string {
 	return filepath.Join(r.Root, r.Config.ChannelsDir)
 }
 
-// AreasDir returns the absolute areas directory path.
-func (r *Resolved) AreasDir() string {
-	return filepath.Join(r.Root, r.Config.AreasDir)
+// GapsDir returns the absolute gaps directory path.
+func (r *Resolved) GapsDir() string {
+	return filepath.Join(r.Root, r.Config.GapsDir)
 }
 
-// GroupsDir returns the absolute groups directory path (under areas dir).
-func (r *Resolved) GroupsDir() string {
-	return filepath.Join(r.AreasDir(), r.Config.GroupsDir)
+// ChannelDir returns <gaps-dir>/<name>, the docs folder of a non-thread
+// channel. Does NOT verify existence.
+func (r *Resolved) ChannelDir(name string) string {
+	return filepath.Join(r.GapsDir(), name)
 }
 
 func pathExists(p string) bool {

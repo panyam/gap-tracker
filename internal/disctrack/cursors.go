@@ -14,7 +14,6 @@ type CursorView struct {
 	Found       bool   `json:"found"`
 	Channel     string `json:"channel,omitempty"`
 	ChannelID   string `json:"channel_id,omitempty"`
-	Area        string `json:"area,omitempty"`
 	SourceType  string `json:"source_type,omitempty"`
 	SourceKey   string `json:"source_key,omitempty"`
 	CursorValue string `json:"cursor_value,omitempty"`
@@ -36,7 +35,6 @@ func GetDiscordCursor(db *gorm.DB, channelID, channelName string) (CursorView, e
 		Found:       true,
 		Channel:     channelName,
 		ChannelID:   channelID,
-		Area:        c.Area,
 		SourceType:  c.SourceType,
 		SourceKey:   c.SourceKey,
 		CursorValue: c.CursorValue,
@@ -44,15 +42,15 @@ func GetDiscordCursor(db *gorm.DB, channelID, channelName string) (CursorView, e
 	}, nil
 }
 
-// SetDiscordCursor upserts the cursor row for source_type=discord. The Area
-// field defaults to channelName (or channelID when name is unknown).
+// SetDiscordCursor upserts the cursor row for source_type=discord. The
+// ChannelName field defaults to channelName (or channelID when name is unknown).
 func SetDiscordCursor(db *gorm.DB, channelID, channelName, value string) error {
-	area := channelName
-	if area == "" {
-		area = channelID
+	name := channelName
+	if name == "" {
+		name = channelID
 	}
 	c := Cursor{
-		Area:        area,
+		ChannelName: name,
 		SourceType:  SourceTypeDiscord,
 		SourceKey:   channelID,
 		CursorValue: value,
@@ -62,9 +60,9 @@ func SetDiscordCursor(db *gorm.DB, channelID, channelName, value string) error {
 }
 
 // ListCursors returns every cursor row, optionally filtered to one
-// (source_type, source_key) pair. Ordered by (area, source_type, source_key).
+// (source_type, source_key) pair. Ordered by (channel name, source_type, source_key).
 func ListCursors(db *gorm.DB, sourceType, sourceKey string) ([]Cursor, error) {
-	q := db.Order("area, source_type, source_key")
+	q := db.Order("area, source_type, source_key") // area is the channel-name column
 	if sourceType != "" && sourceKey != "" {
 		q = q.Where("source_type = ? AND source_key = ?", sourceType, sourceKey)
 	}

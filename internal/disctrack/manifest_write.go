@@ -31,7 +31,6 @@ type manifestFields struct {
 	DisplayName   string
 	Kind          string
 	ParentChannel string
-	AreaFolder    string
 	Tags          []string
 	Notes         string
 }
@@ -48,9 +47,6 @@ func renderManifest(f manifestFields) string {
 	fmt.Fprintf(&b, "kind: %s\n", f.Kind)
 	if f.ParentChannel != "" {
 		fmt.Fprintf(&b, "parent_channel: %s\n", f.ParentChannel)
-	}
-	if f.AreaFolder != "" {
-		fmt.Fprintf(&b, "area_folder: %s\n", f.AreaFolder)
 	}
 	b.WriteString("baseline_window: 4w\n")
 	fmt.Fprintf(&b, "tags: [%s]\n", strings.Join(f.Tags, ", "))
