@@ -12,7 +12,13 @@ the DOM, and emit one JSONL record per message to stdout.
 Logs and progress go to stderr. JSONL records go to stdout. Pipe stdout to
 `mcpcontribd ingest` (or capture to a file for inspection).
 
-Stop conditions (whichever comes first):
+Batch mode (--target CHANNEL_ID[=SINCE], repeatable) scrapes several channels
+in one browser session, which is how `disctrack sync` covers a parent
+channel's threads without a browser launch per thread. After each target it
+emits a control record {"event": "target_done", "channel_id": ..., "ok": ...}
+so the reader knows which targets finished.
+
+Stop conditions per channel (whichever comes first):
   - oldest visible ts <= --since
   - max iterations reached
   - no new messages after a scroll (top of channel, or rate-limited)
@@ -203,12 +209,267 @@ async def login_flow(ctx, channel_url: str) -> int:
         return 1
 
 
+async def wait_for_messages(page) -> bool:
+    """Wait for the chat list to render. False (after logging why) when it
+    never does, which almost always means the profile is logged out."""
+    try:
+        await page.wait_for_selector(
+            'li[id^="chat-messages-"]', timeout=RENDER_TIMEOUT_MS
+        )
+        return True
+    except Exception:
+        log(
+            "error: no messages rendered within "
+            f"{RENDER_TIMEOUT_MS}ms. Likely not logged in."
+        )
+        log(
+            "Run once with --login to log in interactively. Future "
+            "runs will reuse the saved profile."
+        )
+        return False
+
+
+async def scrape_channel(page, channel: str, since: str, max_iters: int) -> dict:
+    """Scroll one already-loaded channel back to `since`, emitting a JSONL
+    record per message on stdout. Returns the summary dict."""
+    seen_ids: set[tuple[str, str]] = set()
+    resolved_threads: dict[str, str | None] = {}
+    iter_count = 0
+    oldest_seen: str | None = None
+    newest_seen: str | None = None
+    emitted = 0
+    since = since.strip()
+
+    while iter_count < max_iters:
+        iter_count += 1
+        batch = await page.evaluate(EXTRACT_JS, channel)
+        new_in_batch = 0
+        batch_oldest: str | None = None
+        batch_newest: str | None = None
+
+        for m in batch:
+            key = (m["channel_id"], m["message_id"])
+            if key in seen_ids:
+                continue
+            seen_ids.add(key)
+            new_in_batch += 1
+
+            # Thread-start markers carry no thread id in static DOM;
+            # resolve it by clicking the title (once per marker, cached).
+            is_marker = m.pop("is_thread_marker", False)
+            if is_marker:
+                mid = m["message_id"]
+                if mid not in resolved_threads:
+                    resolved_threads[mid] = await resolve_thread_id(
+                        page, m["channel_id"], mid
+                    )
+                    tid = resolved_threads[mid]
+                    log(
+                        f"  marker {mid} -> thread {tid}"
+                        if tid
+                        else f"  marker {mid} -> thread UNRESOLVED"
+                    )
+                m["thread_id"] = resolved_threads[mid]
+
+            print(json.dumps(m), flush=True)
+            emitted += 1
+            if batch_oldest is None or m["ts"] < batch_oldest:
+                batch_oldest = m["ts"]
+            if batch_newest is None or m["ts"] > batch_newest:
+                batch_newest = m["ts"]
+
+        if batch_oldest is not None and (
+            oldest_seen is None or batch_oldest < oldest_seen
+        ):
+            oldest_seen = batch_oldest
+        if batch_newest is not None and (
+            newest_seen is None or batch_newest > newest_seen
+        ):
+            newest_seen = batch_newest
+
+        log(
+            f"  scroll {iter_count}/{max_iters}  "
+            f"new={new_in_batch}  oldest={batch_oldest}  "
+            f"newest={batch_newest}"
+        )
+
+        if since and batch_oldest and batch_oldest <= since:
+            log(f"  cursor reached (oldest {batch_oldest} <= since {since})")
+            break
+        # Note: a `new_in_batch == 0` early-exit here would fire
+        # prematurely. Discord only lazy-loads more history when
+        # scrollTop is close to 0, so several scrolls deep in the
+        # buffer can return zero new messages even though more
+        # history is reachable. Real top-of-channel is detected
+        # post-scroll below by checking scrollTop=0 + scrollHeight
+        # unchanged during the wait.
+
+        # Scroll the chat container directly via the DOM instead of
+        # pressing PageUp. PageUp targets whatever element holds
+        # keyboard focus — after page.goto Discord typically focuses
+        # the message input box, where PageUp is a no-op. Result:
+        # snapshot.py would stop after the first viewport with
+        # new_in_batch=0 even though years of history sit above.
+        #
+        # Walk up from any visible message to find the scrollable
+        # ancestor, then jump scrollTop up by ~2 viewport heights.
+        # Discord's virtualizer lazy-loads older messages as the
+        # container's scrollTop changes.
+        scroll_result = await page.evaluate(
+            """
+            () => {
+              const msg = document.querySelector('li[id^="chat-messages-"]');
+              if (!msg) return { error: 'no message element' };
+              let el = msg.parentElement;
+              while (el && el !== document.body) {
+                const s = window.getComputedStyle(el);
+                const isScroll =
+                  (s.overflowY === 'auto' || s.overflowY === 'scroll') &&
+                  el.scrollHeight > el.clientHeight;
+                if (isScroll) {
+                  const before = el.scrollTop;
+                  const heightBefore = el.scrollHeight;
+                  const step = Math.max(el.clientHeight * 2, 1500);
+                  el.scrollTop = Math.max(0, before - step);
+                  return {
+                    ok: true,
+                    before,
+                    after: el.scrollTop,
+                    clientHeight: el.clientHeight,
+                    heightBefore,
+                    step,
+                  };
+                }
+                el = el.parentElement;
+              }
+              return { error: 'no scrollable ancestor found' };
+            }
+            """
+        )
+        if isinstance(scroll_result, dict) and scroll_result.get("error"):
+            log(f"  scroll failed: {scroll_result['error']}; stopping")
+            break
+        await page.wait_for_timeout(SCROLL_WAIT_MS)
+        # Check whether Discord actually lazy-loaded more history by
+        # comparing scrollHeight before vs after the wait. Growing
+        # scrollHeight = older messages were prepended into the DOM.
+        # Unchanged at scrollTop=0 = real top of channel.
+        post_scroll = await page.evaluate(
+            """
+            () => {
+              const msg = document.querySelector('li[id^="chat-messages-"]');
+              if (!msg) return null;
+              let el = msg.parentElement;
+              while (el && el !== document.body) {
+                const s = window.getComputedStyle(el);
+                if ((s.overflowY === 'auto' || s.overflowY === 'scroll') && el.scrollHeight > el.clientHeight) {
+                  return { scrollTop: el.scrollTop, scrollHeight: el.scrollHeight };
+                }
+                el = el.parentElement;
+              }
+              return null;
+            }
+            """
+        )
+        height_after_num = (
+            post_scroll["scrollHeight"] if post_scroll else None
+        )
+        height_after_str = (
+            f"{height_after_num:.0f}" if height_after_num is not None else "N/A"
+        )
+        log(
+            f"    scroll: before={scroll_result['before']:.0f} "
+            f"after={scroll_result['after']:.0f} "
+            f"height_before={scroll_result['heightBefore']:.0f} "
+            f"height_after={height_after_str} "
+            f"viewport={scroll_result['clientHeight']:.0f}"
+        )
+
+        # True top-of-channel detection. The scroll attempt had
+        # scrollTop already at 0 going in AND the scrollHeight did
+        # not grow during the wait. Discord has no older history
+        # left to lazy-load.
+        if (
+            scroll_result["before"] == 0
+            and height_after_num is not None
+            and height_after_num == scroll_result["heightBefore"]
+        ):
+            log("  scrollTop already 0, scrollHeight unchanged → top of channel")
+            break
+
+    summary = {
+        "iterations": iter_count,
+        "emitted": emitted,
+        "oldest_seen": oldest_seen,
+        "newest_seen": newest_seen,
+    }
+    log("summary: " + json.dumps(summary))
+    return summary
+
+
+def parse_target(value: str) -> tuple[str, str]:
+    """--target CHANNEL_ID[=SINCE] -> (channel_id, since)."""
+    channel, _, since = value.partition("=")
+    channel = channel.strip()
+    if not channel.isdigit():
+        raise argparse.ArgumentTypeError(
+            f"--target wants CHANNEL_ID[=ISO_SINCE], got {value!r}"
+        )
+    return channel, since.strip()
+
+
+def emit_event(event: dict) -> None:
+    """Batch-mode control record. Carries an "event" key so the reader can
+    tell it from a message record."""
+    print(json.dumps(event), flush=True)
+
+
+async def scrape_batch(ctx, args) -> int:
+    """Batch mode: one browser session, one navigation per --target. Each
+    target ends with a target_done event on stdout. A failing target is
+    reported and skipped; the rest still run. Exit 0 unless every target
+    failed."""
+    page = ctx.pages[0] if ctx.pages else await ctx.new_page()
+    failures = 0
+    for channel, since in args.target:
+        url = f"https://discord.com/channels/{args.server_id}/{channel}"
+        log(f"[target {channel}] navigating to {url} (since {since or 'cold start'})")
+        try:
+            await page.goto(url, wait_until="domcontentloaded")
+            if not await wait_for_messages(page):
+                raise RuntimeError(
+                    f"no messages rendered within {RENDER_TIMEOUT_MS}ms "
+                    "(logged out, or no access to this channel)"
+                )
+            summary = await scrape_channel(page, channel, since, args.max_iters)
+            emit_event(
+                {
+                    "event": "target_done",
+                    "channel_id": channel,
+                    "ok": True,
+                    "emitted": summary["emitted"],
+                }
+            )
+        except Exception as e:
+            failures += 1
+            log(f"[target {channel}] failed: {e}")
+            emit_event(
+                {
+                    "event": "target_done",
+                    "channel_id": channel,
+                    "ok": False,
+                    "error": str(e),
+                }
+            )
+    return 1 if failures == len(args.target) else 0
+
+
 async def main_async(args) -> int:
     profile_dir = resolve_profile_dir(args.profile, args.profile_dir)
     ensure_profile_dir(profile_dir)
 
-    channel_url = f"https://discord.com/channels/{args.server_id}/{args.channel}"
-    log(f"navigating to {channel_url}")
+    first = args.channel or args.target[0][0]
+    channel_url = f"https://discord.com/channels/{args.server_id}/{first}"
     log(f"profile: {args.profile or 'default (from $DISCTRACK_PROFILE or fallback)'}")
     log(f"profile dir: {profile_dir}")
 
@@ -221,197 +482,15 @@ async def main_async(args) -> int:
         try:
             if args.login:
                 return await login_flow(ctx, channel_url)
+            if args.target:
+                return await scrape_batch(ctx, args)
 
+            log(f"navigating to {channel_url}")
             page = ctx.pages[0] if ctx.pages else await ctx.new_page()
             await page.goto(channel_url, wait_until="domcontentloaded")
-
-            try:
-                await page.wait_for_selector(
-                    'li[id^="chat-messages-"]', timeout=RENDER_TIMEOUT_MS
-                )
-            except Exception:
-                log(
-                    "error: no messages rendered within "
-                    f"{RENDER_TIMEOUT_MS}ms. Likely not logged in."
-                )
-                log(
-                    "Run once with --login to log in interactively. Future "
-                    "runs will reuse the saved profile."
-                )
+            if not await wait_for_messages(page):
                 return 1
-
-            seen_ids: set[tuple[str, str]] = set()
-            resolved_threads: dict[str, str | None] = {}
-            iter_count = 0
-            oldest_seen: str | None = None
-            newest_seen: str | None = None
-            emitted = 0
-            since = args.since.strip()
-
-            while iter_count < args.max_iters:
-                iter_count += 1
-                batch = await page.evaluate(EXTRACT_JS, args.channel)
-                new_in_batch = 0
-                batch_oldest: str | None = None
-                batch_newest: str | None = None
-
-                for m in batch:
-                    key = (m["channel_id"], m["message_id"])
-                    if key in seen_ids:
-                        continue
-                    seen_ids.add(key)
-                    new_in_batch += 1
-
-                    # Thread-start markers carry no thread id in static DOM;
-                    # resolve it by clicking the title (once per marker, cached).
-                    is_marker = m.pop("is_thread_marker", False)
-                    if is_marker:
-                        mid = m["message_id"]
-                        if mid not in resolved_threads:
-                            resolved_threads[mid] = await resolve_thread_id(
-                                page, m["channel_id"], mid
-                            )
-                            tid = resolved_threads[mid]
-                            log(
-                                f"  marker {mid} -> thread {tid}"
-                                if tid
-                                else f"  marker {mid} -> thread UNRESOLVED"
-                            )
-                        m["thread_id"] = resolved_threads[mid]
-
-                    print(json.dumps(m), flush=True)
-                    emitted += 1
-                    if batch_oldest is None or m["ts"] < batch_oldest:
-                        batch_oldest = m["ts"]
-                    if batch_newest is None or m["ts"] > batch_newest:
-                        batch_newest = m["ts"]
-
-                if batch_oldest is not None and (
-                    oldest_seen is None or batch_oldest < oldest_seen
-                ):
-                    oldest_seen = batch_oldest
-                if batch_newest is not None and (
-                    newest_seen is None or batch_newest > newest_seen
-                ):
-                    newest_seen = batch_newest
-
-                log(
-                    f"  scroll {iter_count}/{args.max_iters}  "
-                    f"new={new_in_batch}  oldest={batch_oldest}  "
-                    f"newest={batch_newest}"
-                )
-
-                if since and batch_oldest and batch_oldest <= since:
-                    log(f"  cursor reached (oldest {batch_oldest} <= since {since})")
-                    break
-                # Note: a `new_in_batch == 0` early-exit here would fire
-                # prematurely. Discord only lazy-loads more history when
-                # scrollTop is close to 0, so several scrolls deep in the
-                # buffer can return zero new messages even though more
-                # history is reachable. Real top-of-channel is detected
-                # post-scroll below by checking scrollTop=0 + scrollHeight
-                # unchanged during the wait.
-
-                # Scroll the chat container directly via the DOM instead of
-                # pressing PageUp. PageUp targets whatever element holds
-                # keyboard focus — after page.goto Discord typically focuses
-                # the message input box, where PageUp is a no-op. Result:
-                # snapshot.py would stop after the first viewport with
-                # new_in_batch=0 even though years of history sit above.
-                #
-                # Walk up from any visible message to find the scrollable
-                # ancestor, then jump scrollTop up by ~2 viewport heights.
-                # Discord's virtualizer lazy-loads older messages as the
-                # container's scrollTop changes.
-                scroll_result = await page.evaluate(
-                    """
-                    () => {
-                      const msg = document.querySelector('li[id^="chat-messages-"]');
-                      if (!msg) return { error: 'no message element' };
-                      let el = msg.parentElement;
-                      while (el && el !== document.body) {
-                        const s = window.getComputedStyle(el);
-                        const isScroll =
-                          (s.overflowY === 'auto' || s.overflowY === 'scroll') &&
-                          el.scrollHeight > el.clientHeight;
-                        if (isScroll) {
-                          const before = el.scrollTop;
-                          const heightBefore = el.scrollHeight;
-                          const step = Math.max(el.clientHeight * 2, 1500);
-                          el.scrollTop = Math.max(0, before - step);
-                          return {
-                            ok: true,
-                            before,
-                            after: el.scrollTop,
-                            clientHeight: el.clientHeight,
-                            heightBefore,
-                            step,
-                          };
-                        }
-                        el = el.parentElement;
-                      }
-                      return { error: 'no scrollable ancestor found' };
-                    }
-                    """
-                )
-                if isinstance(scroll_result, dict) and scroll_result.get("error"):
-                    log(f"  scroll failed: {scroll_result['error']}; stopping")
-                    break
-                await page.wait_for_timeout(SCROLL_WAIT_MS)
-                # Check whether Discord actually lazy-loaded more history by
-                # comparing scrollHeight before vs after the wait. Growing
-                # scrollHeight = older messages were prepended into the DOM.
-                # Unchanged at scrollTop=0 = real top of channel.
-                post_scroll = await page.evaluate(
-                    """
-                    () => {
-                      const msg = document.querySelector('li[id^="chat-messages-"]');
-                      if (!msg) return null;
-                      let el = msg.parentElement;
-                      while (el && el !== document.body) {
-                        const s = window.getComputedStyle(el);
-                        if ((s.overflowY === 'auto' || s.overflowY === 'scroll') && el.scrollHeight > el.clientHeight) {
-                          return { scrollTop: el.scrollTop, scrollHeight: el.scrollHeight };
-                        }
-                        el = el.parentElement;
-                      }
-                      return null;
-                    }
-                    """
-                )
-                height_after_num = (
-                    post_scroll["scrollHeight"] if post_scroll else None
-                )
-                height_after_str = (
-                    f"{height_after_num:.0f}" if height_after_num is not None else "N/A"
-                )
-                log(
-                    f"    scroll: before={scroll_result['before']:.0f} "
-                    f"after={scroll_result['after']:.0f} "
-                    f"height_before={scroll_result['heightBefore']:.0f} "
-                    f"height_after={height_after_str} "
-                    f"viewport={scroll_result['clientHeight']:.0f}"
-                )
-
-                # True top-of-channel detection. The scroll attempt had
-                # scrollTop already at 0 going in AND the scrollHeight did
-                # not grow during the wait. Discord has no older history
-                # left to lazy-load.
-                if (
-                    scroll_result["before"] == 0
-                    and height_after_num is not None
-                    and height_after_num == scroll_result["heightBefore"]
-                ):
-                    log("  scrollTop already 0, scrollHeight unchanged → top of channel")
-                    break
-
-            summary = {
-                "iterations": iter_count,
-                "emitted": emitted,
-                "oldest_seen": oldest_seen,
-                "newest_seen": newest_seen,
-            }
-            log("summary: " + json.dumps(summary))
+            await scrape_channel(page, args.channel, args.since, args.max_iters)
             return 0
         finally:
             await ctx.close()
@@ -426,7 +505,21 @@ def main() -> None:
         required=True,
         help="Discord server (guild) ID. Combined with --channel forms the URL.",
     )
-    parser.add_argument("--channel", required=True, help="Discord channel ID")
+    parser.add_argument(
+        "--channel",
+        help="Discord channel ID. Single-channel mode, the default.",
+    )
+    parser.add_argument(
+        "--target",
+        action="append",
+        type=parse_target,
+        default=[],
+        metavar="CHANNEL_ID[=SINCE]",
+        help="Batch mode, repeatable: scrape each target in one browser "
+        "session, each back to its own SINCE. Every target ends with a "
+        '{"event": "target_done", ...} record on stdout. Used by '
+        "'disctrack sync' for a parent channel's threads.",
+    )
     parser.add_argument(
         "--since",
         default="",
@@ -462,6 +555,10 @@ def main() -> None:
         help="Explicit Chromium user-data-dir path (overrides --profile).",
     )
     args = parser.parse_args()
+    if bool(args.channel) == bool(args.target):
+        parser.error("pass exactly one of --channel or --target (repeatable)")
+    if args.target and args.since:
+        parser.error("--since applies to --channel; give each --target its own =SINCE")
     sys.exit(asyncio.run(main_async(args)))
 
 

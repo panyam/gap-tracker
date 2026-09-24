@@ -51,8 +51,17 @@ func Ingest(db *gorm.DB, r io.Reader, resolved *Resolved) (IngestStats, error) {
 	if err != nil {
 		return IngestStats{}, err
 	}
-	stats := IngestStats{Errors: parseErrors}
-	err = db.Transaction(func(tx *gorm.DB) error {
+	stats, err := IngestMessages(db, incoming, resolved)
+	stats.Errors += parseErrors
+	return stats, err
+}
+
+// IngestMessages is Ingest over already-parsed records. The batched thread
+// sync uses it to ingest each target's records separately, so every thread
+// gets its own stats and its own transaction.
+func IngestMessages(db *gorm.DB, incoming []IncomingMessage, resolved *Resolved) (IngestStats, error) {
+	var stats IngestStats
+	err := db.Transaction(func(tx *gorm.DB) error {
 		for channelID, msgs := range groupByChannel(incoming) {
 			parentID := ""
 			if resolved != nil {
