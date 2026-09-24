@@ -28,6 +28,54 @@ type ChannelManifest struct {
 	// ParentChannel is the name (or channel_id) of the containing channel
 	// when Kind == "thread". Empty otherwise.
 	ParentChannel string `yaml:"parent_channel"`
+
+	// Parent is the legacy thread schema: a `parent:` block carrying the
+	// parent's channel_id and channel_name, with no `kind:` field. Older
+	// hand-written thread manifests (e.g. mcp-apps-wg's cross-host-rendering
+	// and adopter-list) use it. A manifest with Parent.ChannelID set and no
+	// Kind is treated as a thread. New manifests use Kind + ParentChannel.
+	Parent *LegacyParent `yaml:"parent,omitempty" json:"-"`
+}
+
+// LegacyParent is the `parent:` block of the legacy thread schema. Only the
+// fields disctrack reads are modelled; message_id / message_author /
+// message_ts stay in the yaml as provenance.
+type LegacyParent struct {
+	ChannelID   string `yaml:"channel_id"`
+	ChannelName string `yaml:"channel_name"`
+}
+
+// normalizeLegacyParent folds the legacy `parent:` block into Kind and
+// ParentChannel so the rest of disctrack sees one schema. An explicit Kind
+// or ParentChannel wins over the legacy block.
+func (m *ChannelManifest) normalizeLegacyParent() {
+	if m.Parent == nil || m.Parent.ChannelID == "" && m.Parent.ChannelName == "" {
+		return
+	}
+	if m.Kind == "" {
+		m.Kind = ChannelKindThread
+	}
+	if m.ParentChannel == "" {
+		if m.Parent.ChannelName != "" {
+			m.ParentChannel = m.Parent.ChannelName
+		} else {
+			m.ParentChannel = m.Parent.ChannelID
+		}
+	}
+}
+
+// hasParent reports whether this thread manifest points at the parent given
+// by name or channel_id. Either side may be empty. Checks parent_channel
+// against both, plus the legacy block's channel_id, so a legacy manifest
+// whose channel_name drifted from the parent's manifest name still matches
+// by id.
+func (m *ChannelManifest) hasParent(parentName, parentID string) bool {
+	if m.ParentChannel != "" &&
+		((parentName != "" && m.ParentChannel == parentName) ||
+			(parentID != "" && m.ParentChannel == parentID)) {
+		return true
+	}
+	return m.Parent != nil && parentID != "" && m.Parent.ChannelID == parentID
 }
 
 // EffectiveKind returns Kind with the default applied: empty → "text".
@@ -81,6 +129,7 @@ func (r *Resolved) LoadChannel(name string) (*ChannelManifest, []string, error) 
 	if m.Name == "" {
 		m.Name = name
 	}
+	m.normalizeLegacyParent()
 	return &m, nil, nil
 }
 
@@ -107,9 +156,10 @@ func (r *Resolved) AreaPath(name string) string {
 	return filepath.Join(r.AreasDir(), name)
 }
 
-// ListThreads returns every channel manifest whose Kind == "thread" and
-// whose ParentChannel matches the given parent (by name or by channel_id).
-// Result is ordered by manifest name.
+// ListThreads returns every thread manifest whose parent matches the given
+// parent (by name or by channel_id). Both the current schema (kind: thread +
+// parent_channel) and the legacy `parent:` block are recognized. Result is
+// ordered by manifest name.
 func (r *Resolved) ListThreads(parent string) ([]ChannelManifest, error) {
 	// Pre-resolve the parent's channel_id so the caller can pass either a
 	// name ("strategy") or a numeric id (1040651639276699680). When the
@@ -136,11 +186,7 @@ func (r *Resolved) ListThreads(parent string) ([]ChannelManifest, error) {
 		if m.EffectiveKind() != ChannelKindThread {
 			continue
 		}
-		if m.ParentChannel == "" {
-			continue
-		}
-		if (parentName != "" && m.ParentChannel == parentName) ||
-			(parentID != "" && m.ParentChannel == parentID) {
+		if m.hasParent(parentName, parentID) {
 			out = append(out, *m)
 		}
 	}
@@ -153,6 +199,9 @@ func (r *Resolved) ListThreads(parent string) ([]ChannelManifest, error) {
 func (r *Resolved) ResolveParentChannelID(m *ChannelManifest) string {
 	if m == nil || !m.IsThread() || m.ParentChannel == "" {
 		return ""
+	}
+	if m.Parent != nil && m.Parent.ChannelID != "" {
+		return m.Parent.ChannelID
 	}
 	if digitsOnly.MatchString(m.ParentChannel) {
 		return m.ParentChannel
