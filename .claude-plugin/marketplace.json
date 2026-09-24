@@ -9,7 +9,7 @@
     {
       "name": "gaps",
       "source": "./plugins/gaps",
-      "description": "Track and reconcile deltas between upstream and our code repos, using the gap-tracker DB and per-area CURRENT_GAPS.md files"
+      "description": "Track and reconcile deltas between upstream and our code repos, using the gap-tracker DB and one CURRENT_GAPS.md per tracked Discord channel"
     }
   ]
 }

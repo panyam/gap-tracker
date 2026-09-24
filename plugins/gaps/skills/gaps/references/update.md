@@ -1,6 +1,6 @@
 # /gaps update
 
-Reconcile an area's `CURRENT_GAPS.md` against the code repo and the open issue
+Reconcile a channel's `CURRENT_GAPS.md` against the code repo and the open issue
 list. Proposes a per-gap action (close, fold, file a new ticket, update an
 existing ticket, hold), surfaces backlink-firing references, takes per-action
 confirmation, then executes the approved actions.
@@ -18,21 +18,21 @@ rules**, and the **shared style notes and gotchas**. This mode edits an existing
 
 ## Arguments
 
-`<area-folder-name> [--worktree <path>] [--repo <org/repo>] [--label <label>] [--dry-run]`
+`<channel> [--worktree <path>] [--repo <org/repo>] [--label <label>] [--dry-run]`
 
-- `<area-folder-name>` (required) is the folder name under `<areas-dir>/`, used to locate `CURRENT_GAPS.md` and `area.yaml`. If `area.yaml` has a `worktree:` field, that is the default code-repo checkout, otherwise the default is `<code.default_worktree>` from config.
+- `<channel>` (required) is a tracked non-thread channel. Its manifest, `<channels-dir>/<channel>.yaml`, supplies the optional `worktree:`, `repo:` and `default_label:` defaults, and its folder, `<gaps-dir>/<channel>/`, holds `CURRENT_GAPS.md`.
 - `--worktree <path>` (optional) overrides the worktree path. Use it when the gap-side analysis should run against a feature-branch worktree rather than main.
-- `--repo <org/repo>` (optional) is the GitHub repo to file or edit issues against. Defaults to `area.yaml`'s `repo:` if set, else `<code.repo>` from config. Different areas may target different downstream repos.
-- `--label <label>` (optional) filters the existing-issue query to a single label (e.g. `prod-events`). Defaults to whatever `area.yaml` declares in a `default_label:` field, otherwise no filter.
+- `--repo <org/repo>` (optional) is the GitHub repo to file or edit issues against. Defaults to the manifest's `repo:` if set, else `<code.repo>` from config. Different channels may target different downstream repos.
+- `--label <label>` (optional) filters the existing-issue query to a single label (e.g. `prod-events`). Defaults to the manifest's `default_label:` if set, otherwise no filter.
 - `--dry-run` (optional) produces the plan file and stops, skipping the confirmation and execution phase. Useful for review-only passes.
 
 ## Output
 
-- **Always**: `<areas-dir>/<name>/gap-update-plan.md`, a DO-NOT-COMMIT working file overwritten each run and gitignored via the `<areas-dir>/*/gap-update-plan.md` pattern. This is the proposal document the user reads.
-- **On execution**: edits to `<areas-dir>/<name>/CURRENT_GAPS.md`. New issues filed via `gh issue create`, existing issues edited via `gh issue edit`, closed issues closed via `gh issue close`.
+- **Always**: `<gaps-dir>/<channel>/gap-update-plan.md`, a DO-NOT-COMMIT working file overwritten each run and gitignored via the `<gaps-dir>/*/gap-update-plan.md` pattern. This is the proposal document the user reads.
+- **On execution**: edits to `<gaps-dir>/<channel>/CURRENT_GAPS.md`. New issues filed via `gh issue create`, existing issues edited via `gh issue edit`, closed issues closed via `gh issue close`.
 
 This mode does NOT:
-- Modify the area's `README.md`. Stale findings about README stay surfaced in `CURRENT_GAPS.md` for the human.
+- Modify the channel folder's `README.md`. Stale findings about README stay surfaced in `CURRENT_GAPS.md` for the human.
 - Run `/gaps channel` or `/gaps proposal`. Inputs are taken at face value.
 - Re-classify gaps already in the `Closed` section. Those are history.
 - Auto-promote gaps between `Discussing`, `Finalized` and `Ticketed` without an explicit file-ticket or update-ticket action proposed and approved. The lifecycle transition is the *result* of executing an approved action, never a separate move.
@@ -41,25 +41,26 @@ This mode does NOT:
 
 ### 1. Validate inputs
 
-Resolve `<area-folder-name>`:
+Resolve `<channel>`:
 
-- Look for `<areas-dir>/<name>/CURRENT_GAPS.md`. If missing, fail fast with a "did you mean" list of folders that have `CURRENT_GAPS.md`. Suggest running `/gaps channel <name>` first.
-- Look for `<areas-dir>/<name>/area.yaml`. If present, read optional `worktree:`, `default_label:`, `repo:` fields. Missing area.yaml is fine, and defaults apply.
+- Run `disctrack dir <channel>`. It fails for an untracked channel (with the available names), for a thread (name the parent instead), for a manifest still carrying a legacy `area_folder` or `proposal_folder`, and for a missing folder. Surface the error verbatim and stop.
+- Look for `<gaps-dir>/<channel>/CURRENT_GAPS.md`. If missing, fail fast with a "did you mean" list of channel folders that have `CURRENT_GAPS.md`. Suggest running `/gaps channel <channel>` first.
+- Read `<channels-dir>/<channel>.yaml` for the optional `worktree:`, `default_label:` and `repo:` fields. Each one that is absent falls back to its default.
 
 Resolve the worktree:
 
-- `--worktree` arg if passed, else `area.yaml`'s `worktree:` field if set, else `<code.default_worktree>` from config.
+- `--worktree` arg if passed, else the manifest's `worktree:` field if set, else `<code.default_worktree>` from config.
 - Verify the path exists and is a git checkout. Fail fast if not.
 
 Resolve the repo:
 
-- `--repo` arg if passed, else `area.yaml`'s `repo:` field if set, else `<code.repo>` from config.
+- `--repo` arg if passed, else the manifest's `repo:` field if set, else `<code.repo>` from config.
 
 Resolve the label filter:
 
-- `--label` arg if passed, else `area.yaml`'s `default_label:` field if set, else no filter.
+- `--label` arg if passed, else the manifest's `default_label:` field if set, else no filter.
 
-Resolve plan file path: `<areas-dir>/<name>/gap-update-plan.md`.
+Resolve plan file path: `<gaps-dir>/<channel>/gap-update-plan.md`.
 
 ### 2. Gather state
 
@@ -68,7 +69,7 @@ Run in parallel where possible:
 - **Read `CURRENT_GAPS.md`.** Parse out every gap by section: Discussing, Finalized, Ticketed, Closed. Extract per-gap: ID, title, "`<code.name>` side" file:line citations, Pending checklist items, any `→ <repo>#<N>` ticket references.
 - **Query existing issues.** `GH_TOKEN="$GH_PERSONAL_TOKEN" gh issue list --repo <repo> --label <label> --state all --limit 200 --json number,state,title,labels,updatedAt,body`. Cache the body for issues currently referenced from CURRENT_GAPS.md (via Ticketed-section `→ #N` markers).
 - **Worktree HEAD + branch.** `git -C <worktree> log -1 --format='%H %s' && git -C <worktree> branch --show-current`. Surface in the plan file's header.
-- **gapt classification (optional)**. If `gapt.enabled` in config AND `area.yaml` declares sources in a `gapt.sources:` list, run `gapt status <gapt.project_id> -o yaml` and pull the relevant rows. Skip if gapt config is incomplete.
+- **gapt classification (optional)**. If `gapt.enabled` in config AND the channel manifest declares sources in a `gapt.sources:` list, run `gapt status <gapt.project_id> -o yaml` and pull the relevant rows. Skip if gapt config is incomplete.
 
 ### 3. Per-gap classification
 
@@ -111,7 +112,7 @@ For closed gaps that still have an OPEN issue: propose `gh issue close <N>` with
 
 ### 4. Write the plan file
 
-`<areas-dir>/<name>/gap-update-plan.md`, a full overwrite with no merge.
+`<gaps-dir>/<channel>/gap-update-plan.md`, a full overwrite with no merge.
 
 Plan-file header MUST start with this exact block (one trailing blank line):
 
@@ -120,7 +121,7 @@ Plan-file header MUST start with this exact block (one trailing blank line):
 > DO NOT COMMIT. This file is ephemeral working state produced by `/gaps update`.
 > It is overwritten on every run and gitignored. Do not check it in.
 
-# Gap-update plan: <area-name>
+# Gap-update plan: <channel>
 
 Generated <YYYY-MM-DD HH:MM TZ> by `/gaps update`
 Worktree: `<path>` @ `<HEAD-sha>` on branch `<branch>`
@@ -201,10 +202,10 @@ In this order:
 After each successful action: log it inline so the user sees progress. After all actions: print a final summary block to stdout (not to a file):
 
 ```
-gaps update: <area-name>
+gaps update: <channel>
   CURRENT_GAPS.md edits: <N> applied (<F> aligned, <S> superseded, <T> Discussing→Ticketed)
   GitHub mutations: <N> filed, <M> updated, <K> closed
-  plan file: <areas-dir>/<name>/gap-update-plan.md (DO-NOT-COMMIT)
+  plan file: <gaps-dir>/<channel>/gap-update-plan.md (DO-NOT-COMMIT)
 ```
 
 ## Five-action decision rubric
@@ -265,9 +266,9 @@ For full body replacement: surface the proposed body verbatim. The user reviews 
 
 For closures of existing open tickets (when the gap is Closed but the ticket is still Open): always include a closing comment that explains why, with a link to the CURRENT_GAPS.md section.
 
-## Worktree config in area.yaml
+## Worktree config in the channel manifest
 
-If the area needs a non-default worktree (feature branch, monorepo subdir, alt repo), add to `<areas-dir>/<name>/area.yaml`:
+If the channel needs a non-default worktree (feature branch, monorepo subdir, alt repo), add to `<channels-dir>/<channel>.yaml`:
 
 ```yaml
 worktree: <abs path to git checkout>    # path to git checkout
@@ -292,20 +293,20 @@ Beyond the shared gotchas in `SKILL.md`:
 - **`gh issue create` is irreversible** in the cross-reference sense. Even closing the issue later does not undo the backlinks created on linked items in the body. Confirm per item.
 - **Worktree on a feature branch.** If the worktree HEAD differs from `<repo>/main`, the plan-file header flags this loudly. Some "verified at" findings may not be on main yet, so mark them as "verified on branch `<branch>`, not yet on main" and the user knows what is actually merged.
 - **Multi-gap consolidation.** When proposing CLOSE-as-superseded, double-check that the absorbing gap is not itself proposed for closure in the same run. If it is, propose a chain ("close G23 → G28 → ...") and execute in the right order.
-- **Channel.yaml `paths`** is a `/gaps channel` hint about which paths to git-log. It does not change the worktree path, which is `area.yaml`'s `worktree:` field. Don't confuse the two.
+- **Manifest `paths`** (under `code:` or `mcpkit:`) is a hint about which paths to git-log. It does not change the worktree path, which is the manifest's top-level `worktree:` field. Don't confuse the two.
 ## Example invocations
 
 ```bash
 # Standard refresh + groom flow:
-/gaps channel <area-name>
-/gaps update <area-name>
+/gaps channel <channel>
+/gaps update <channel>
 
 # Review-only pass:
-/gaps update <area-name> --dry-run
+/gaps update <channel> --dry-run
 
 # Against a feature branch worktree:
-/gaps update <area-name> --worktree <path>
+/gaps update <channel> --worktree <path>
 
 # Different downstream repo:
-/gaps update <area-name> --repo <org/repo> --label <label>
+/gaps update <channel> --repo <org/repo> --label <label>
 ```

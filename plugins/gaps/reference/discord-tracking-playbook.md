@@ -1,6 +1,8 @@
 # Discord-tracking playbook
 
-Shared infrastructure for the global discord-tracking skills (`/gaps channel`, `/gaps proposal`, `/area-refresh`, `/group-refresh`, `/gaps update`). Each of those skills starts by resolving a **tracking root** and loading a **config**. This file specifies both.
+Shared infrastructure for the global discord-tracking skills (`/gaps channel`, `/gaps proposal`, `/gaps update`). Each of those skills starts by resolving a **tracking root** and loading a **config**. This file specifies both, plus the channel manifest that every skill keys on.
+
+**Discord channels are the only entry point.** Each tracked non-thread channel owns exactly one docs folder, `<gaps-dir>/<channel-name>/`. There is no indirection between a channel and its folder, no per-folder manifest, and no grouping layer. Everything a skill needs to know about a channel lives in its manifest at `<channels-dir>/<channel-name>.yaml`.
 
 Skills are project-scoped: they only work when invoked inside a tracked project's directory tree. If no tracking root resolves from cwd, the skill refuses to run.
 
@@ -10,26 +12,26 @@ The `disctrack` Go binary lives at `~/newstack/gap-tracker/cmd/disctrack` (insta
 
 ```
 disctrack config                     # resolved tracking root + key config fields
-disctrack channel <name>             # channel_id from <channels-dir>/<name>.yaml; did-you-mean on miss
+disctrack channel <name>             # channel_id from <channels-dir>/<name>.yaml, did-you-mean on miss
 disctrack channels-dir               # absolute channels directory path
-disctrack area <name>                # absolute area folder path (must exist); did-you-mean on miss
-disctrack areas-dir                  # absolute areas directory path
+disctrack gaps-dir                   # absolute gaps directory path
+disctrack dir <channel>              # absolute <gaps-dir>/<channel> (must exist, errors for threads and untracked channels)
 disctrack url <discord-url>          # parses "https://discord.com/channels/<g>/<c>" → "<g> <c>" (thread URL: <c> is the thread id)
-disctrack onboard <name> <url>       # writes <channels-dir>/<name>.yaml (+ area README skeleton), refuses duplicates
+disctrack onboard <name> <url>       # writes <channels-dir>/<name>.yaml (+ <gaps-dir>/<name>/README.md skeleton), refuses duplicates
 disctrack sync <name>                # scrapes the channel, then auto-tracks and syncs its threads (--no-threads to skip)
 disctrack threads list <parent>      # tracked threads of a channel
 disctrack threads discover <parent>  # thread-start markers in the synced parent, tracked or not
 disctrack version                    # build metadata
 ```
 
-Skills should prefer `disctrack` over hand-rolled path walking. The resolver below describes what `disctrack` does internally — useful for understanding errors and for tooling that needs to reproduce the logic outside the binary.
+Skills should prefer `disctrack` over hand-rolled path walking. The resolver below describes what `disctrack` does internally. It helps with reading errors and with tooling that needs to reproduce the logic outside the binary.
 
 ## Resolver
 
 Walk up from cwd applying these rules in order. Return the first match.
 
-1. **Direct**. `<ancestor>/.discord-tracking.yaml` exists. The tracking root is `<ancestor>`. (Used when cwd is inside the tracking repo itself — e.g. `cd ~/projects/mcpcontrib`.)
-2. **Symlink/dir**. `<ancestor>/discord_tracking` exists (file, directory, or symlink). Resolve it via `realpath`. If `<resolved>/.discord-tracking.yaml` exists, the tracking root is `<resolved>`. (Used when cwd is inside a code repo with an attached tracking repo — e.g. `cd ~/projects/lilbattle` with `discord_tracking → ../lilbattle-tracking`.)
+1. **Direct**. `<ancestor>/.discord-tracking.yaml` exists. The tracking root is `<ancestor>`. (Used when cwd is inside the tracking repo itself, e.g. `cd ~/projects/mcpcontrib`.)
+2. **Symlink/dir**. `<ancestor>/discord_tracking` exists (file, directory, or symlink). Resolve it via `realpath`. If `<resolved>/.discord-tracking.yaml` exists, the tracking root is `<resolved>`. (Used when cwd is inside a code repo with an attached tracking repo, e.g. `cd ~/projects/lilbattle` with `discord_tracking → ../lilbattle-tracking`.)
 
 If neither resolves after walking to `/`, bail:
 
@@ -45,37 +47,38 @@ to set up a tracked project:
 
 ## Config schema
 
-`<tracking-root>/.discord-tracking.yaml`. All path-typed fields support `~` (expand to `$HOME`); relative paths resolve against `<tracking-root>`.
+`<tracking-root>/.discord-tracking.yaml`. All path-typed fields support `~` (expand to `$HOME`). Relative paths resolve against `<tracking-root>`.
 
 ```yaml
-# Layout — where channels and areas live, relative to <tracking-root>
-channels_dir: channels                # e.g. "channels" (default) or "discord/channels" (mcpcontrib)
-areas_dir: areas                       # e.g. "areas" (default) or "proposals" (mcpcontrib)
-groups_dir: _groups                    # subdir under areas_dir; default "_groups"
+# Layout: where manifests and channel docs folders live, relative to <tracking-root>
+channels_dir: channels                # default "channels". mcpcontrib uses "discord/channels"
+gaps_dir: proposals                   # default "proposals". One folder per channel: <gaps_dir>/<channel-name>/
 
 # Discord
 discord:
-  guild_id: "<numeric Discord server ID>"             # required for Playwright-based skills
-  parse_snapshot_script: ~/path/to/parse_snapshot.py  # optional; used by /area-refresh's Playwright path
-  setup_doc: discord/setup.md                         # optional; relative to <tracking-root>; pointed at when login expires
+  guild_id: "<numeric Discord server ID>"             # required by disctrack sync and onboard's guild check
+  snapshot_script: null                               # optional, defaults to the build-time python/snapshot.py
+  profile_dir: ~/path/to/profile                      # optional Chromium user-data-dir, defaults to <tracking-root>/profiles/default
+  setup_doc: discord/setup.md                         # optional, relative to <tracking-root>, pointed at when login expires
 
 # The code project gaps are tracked against
 code:
-  name: mcpkit                                        # human-readable; used in prose ("mcpkit side", citations)
+  name: mcpkit                                        # human-readable, used in prose ("mcpkit side", citations)
   repo: panyam/mcpkit                                 # GitHub org/repo for issue mutations
   default_worktree: ~/newstack/mcpkit/main            # used by /gaps update, /gaps channel, /gaps proposal
-  area_refresh_checkout: ~/newstack/mcpkit/gaptrack   # /area-refresh default; falls back to default_worktree
 
-# gapt integration — optional; omit the whole block to disable gapt steps
+# gapt integration. Optional, omit the whole block to disable gapt steps
 gapt:
   enabled: true
   project_id: mcpkit                                  # used in `gapt status <id>`, `gapt show <id>:...`
   config_path: ~/newstack/gap-tracker/mcpkit/config.json
 
-# Discord-sync tool — optional; default `mcpcontribd`
+# Discord-sync tool. Optional, default `mcpcontribd`
 sync_tool:
   command: mcpcontribd                                # invoked as `<command> sync <channel>`, `<command> messages-since <channel> --ts <iso>`
 ```
+
+**Legacy keys.** `areas_dir` is still read when `gaps_dir` is unset, and disctrack prints a one-line deprecation warning on stderr each time it loads such a config. Rename it to `gaps_dir`. `groups_dir`, `discord.parse_snapshot_script` and `code.area_refresh_checkout` belonged to the removed `/area-refresh` and `/group-refresh` commands and are ignored.
 
 ### Field reference for skills
 
@@ -85,14 +88,12 @@ When a skill below refers to a placeholder, the value comes from config:
 |---|---|---|
 | `<tracking-root>` | resolver output | `<home>/projects/mcpcontrib` |
 | `<channels-dir>` | `channels_dir`, joined to tracking root | `<home>/projects/mcpcontrib/discord/channels` |
-| `<areas-dir>` | `areas_dir`, joined to tracking root | `<home>/projects/mcpcontrib/proposals` |
-| `<groups-dir>` | `areas_dir/groups_dir` | `.../proposals/_groups` |
+| `<gaps-dir>` | `gaps_dir`, joined to tracking root | `<home>/projects/mcpcontrib/proposals` |
+| `<gaps-dir>/<channel>/` | the channel's docs folder, printed by `disctrack dir <channel>` | `.../proposals/gateways-ig/` |
 | `<code.name>` | `code.name` | `mcpkit` |
 | `<code.repo>` | `code.repo` | `panyam/mcpkit` |
 | `<code.default_worktree>` | `code.default_worktree`, ~-expanded | `<home>/newstack/mcpkit/main` |
-| `<code.area_refresh_checkout>` | `code.area_refresh_checkout` or fallback | as above |
 | `<discord.guild_id>` | `discord.guild_id` | `1358869848138059966` |
-| `<discord.parse_snapshot_script>` | `discord.parse_snapshot_script` (may be null) | `<home>/projects/mcpcontrib/discord/parse_snapshot.py` |
 | `<discord.setup_doc>` | `discord.setup_doc` (relative to tracking root) | `<home>/projects/mcpcontrib/discord/setup.md` |
 | `<gapt.project_id>` | `gapt.project_id` if `gapt.enabled` | `mcpkit` |
 | `<sync_tool>` | `sync_tool.command` or `mcpcontribd` | `mcpcontribd` |
@@ -105,21 +106,17 @@ Each tracked project (regardless of whether tracking is in-repo or a sibling rep
 <tracking-root>/
 ├── .discord-tracking.yaml
 ├── <channels-dir>/
-│   └── <channel-name>.yaml          # per-channel manifest
-├── <areas-dir>/
-│   ├── <area-name>/
-│   │   ├── area.yaml                # per-area manifest (PR/doc tracking config)
-│   │   ├── README.md                # area's human-readable strategy doc
-│   │   ├── CURRENT_GAPS.md          # written by /gaps channel + /gaps proposal
-│   │   ├── gap-update-plan.md       # ephemeral; written by /gaps update; gitignored
-│   │   ├── refresh-YYYY-MM-DD.md    # per-run output of /area-refresh
-│   │   └── spec-snapshots/          # snapshots for inline-comment cursors
-│   └── <groups-dir>/
-│       └── <group-name>/
-│           └── refresh-YYYY-MM-DD.md  # /group-refresh coordinator output
+│   ├── <channel-name>.yaml          # per-channel manifest, the only per-channel config
+│   └── <parent>-<slug>-thread.yaml  # thread manifests, no folder of their own
+└── <gaps-dir>/
+    └── <channel-name>/              # one per tracked non-thread channel, same name
+        ├── README.md                # human-written strategy doc, skeleton from onboard
+        ├── CURRENT_GAPS.md          # written by /gaps channel and /gaps proposal
+        ├── gap-update-plan.md       # ephemeral, written by /gaps update, gitignored
+        └── spec-snapshots/          # optional snapshots for inline-comment cursors
 ```
 
-The `channel-name` and `area-name` may differ (one channel may map to a differently-named area folder via `area_folder:` in channel.yaml — legacy: `proposal_folder:`).
+The folder name is always the channel's manifest name. A thread has no folder: its chatter is read by `/gaps channel <parent>` and lands in the parent's folder. Work that has no Discord channel of its own (a spec PR discussed only on GitHub, say) belongs to whichever channel owns it. Add the PR to that channel's `spec_prs`.
 
 ## Channel manifests
 
@@ -133,14 +130,34 @@ display_name: "<name>"
 status: active                   # active | dormant | parked | resolved
 kind: text                       # text | thread | forum. Default text.
 # parent_channel: <parent-name>  # threads only. A manifest name or channel id.
-# area_folder: <folder>          # when the area folder is not <name>
 baseline_window: 4w
 tags: []
 notes: |
   Onboarded on YYYY-MM-DD via disctrack onboard.
 ```
 
-Onboard refuses a URL from another guild, an existing `<name>.yaml`, and a channel id that another manifest already tracks. A text channel also gets `<areas-dir>/<name>/README.md` with a heading-only skeleton when that folder is missing. A thread (a `/threads/` URL, or `--parent <name>`) gets `kind: thread` and `parent_channel`, and no area folder. Its parent must be tracked first.
+Onboard refuses a URL from another guild, an existing `<name>.yaml`, and a channel id that another manifest already tracks. A non-thread channel also gets `<gaps-dir>/<name>/README.md` with a heading-only skeleton when that folder is missing. A thread (a `/threads/` URL, or `--parent <name>`) gets `kind: thread` and `parent_channel`, and no folder. Its parent must be tracked first.
+
+### Fields the skills read
+
+disctrack reads only the fields above. The `/gaps` skill reads the manifest yaml directly for everything else, and disctrack tolerates all of these. Every one is optional.
+
+| Field | Read by | Meaning |
+|---|---|---|
+| `spec_prs` | channel, proposal | List of `{repo, pr, label}` spec PRs this channel owns. `/gaps proposal <pr-url>` resolves a PR to the channel that lists it here. |
+| `code:` or `mcpkit:` | channel, proposal | Code-side `paths` (each `{path, topic}`) to git-log, plus an optional `commit`. The block name may be `code` or the project's `code.name`. |
+| `references` | channel, proposal | External docs (`google-doc`, `ietf-draft`, `external-spec`, `meeting-notes`, `discussion`, `external-pr`) and local refs (`gap-table`, `spec-snapshot`, `spec-notes`, `pr-comments`), each with `label`, `url` or `location`, `last_manually_checked` and an optional `note`. |
+| `ext_repos` | proposal | Other repos to watch for this channel (an SDK's implementation PRs, say). Free-form list of `{repo, note}` or `{repo, pr, label}`. |
+| `related_channels` | channel, proposal | Names of other tracked channels whose chatter is secondary for this one. Read their recent messages for context. Gaps are still written only to this channel's folder. |
+| `mcpconformance` | channel, proposal | Free-form block describing a conformance repo, branch, draft PR and paths that exercise this channel's topic. |
+| `gapt` | all | `sources` (gapt source labels), optional `pr_filter`, `last_status_at`. |
+| `worktree` | update | Default code-repo checkout for `/gaps update`, instead of `code.default_worktree`. |
+| `repo` | update | GitHub repo to file or edit issues against, instead of `code.repo`. |
+| `default_label` | update | Default `--label` filter for the existing-issue query. |
+
+### Removed fields
+
+`area_folder` and its older alias `proposal_folder` pointed a channel at a differently-named folder. They are gone. A manifest whose value differs from its own `name` fails to load with an error naming the file, so move the folder to match the channel name (or rename the channel) and delete the line. A value equal to `name` is accepted and ignored so a half-migrated root keeps working, and so is a thread whose value names its `parent_channel`. `disctrack onboard` never writes either key.
 
 ### Threads
 
@@ -169,8 +186,5 @@ Older thread manifests use a `parent:` block (`channel_id`, `channel_name`) and 
 ## Layout vs. skills compatibility
 
 - `/gaps channel`, `/gaps update`: require `code.default_worktree`, optionally `gapt`, `sync_tool`.
-- `/gaps proposal`: requires `code.default_worktree`, optionally `gapt`. Discord not needed (PR-only).
-- `/area-refresh`: requires `code.area_refresh_checkout`, `discord.guild_id`, `discord.parse_snapshot_script`. Heaviest config dependency.
-- `/group-refresh`: pure delegation to `/area-refresh`; no extra config.
-
-A tracked project that doesn't use Playwright snapshots (e.g. lilbattle, if mcpcontribd-only) can leave `discord.parse_snapshot_script` and `discord.guild_id` unset and skip `/area-refresh`; the lighter `/gaps channel` works without them.
+- `/gaps proposal`: requires `code.default_worktree`, optionally `gapt`. Discord messages are not read, but the proposal is still keyed by a tracked channel.
+- `disctrack sync`: requires `discord.guild_id` and a logged-in Chromium profile (`discord.profile_dir`).

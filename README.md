@@ -58,7 +58,7 @@ gap-tracker/
 │   └── marketplace.json   # makes this repo a Claude Code marketplace
 ├── plugins/gaps/          # the `gaps` plugin, served straight from git
 │   ├── skills/gaps/       # the /gaps skill (channel | proposal | update)
-│   ├── commands/          # /gap-track, /area-refresh
+│   ├── commands/          # /gap-track
 │   └── reference/discord-tracking-playbook.md  # resolver + config schema
 ├── docs/STATE_MACHINE.md  # design anchor: states, verbs, entry points
 ├── main.py                # legacy Python CLI (parity port source)
@@ -72,15 +72,15 @@ gap-tracker/
 ## Discord-tracking skills (Claude Code)
 
 This repo is a Claude Code **marketplace**. `plugins/gaps/` carries the
-`/gaps` skill (`channel`, `proposal`, `update`), the `/gap-track` and
-`/area-refresh` commands, and the resolver/config spec they share. They
+`/gaps` skill (`channel`, `proposal`, `update`), the `/gap-track`
+command, and the resolver/config spec they share. They
 work against any project that has a `.discord-tracking.yaml` (directly, or
 via a `discord_tracking` symlink to a sibling tracking repo). The
 `disctrack` binary backs them.
 
 Nothing is published anywhere: a marketplace is just a git repo with a
 `.claude-plugin/marketplace.json`. Declare it once, in the tracked
-`.claude/settings.json` of each repo that has areas to track:
+`.claude/settings.json` of each repo that has channels to track:
 
 ```json
 {
@@ -117,7 +117,8 @@ repo root (when the project IS the tracking repo, like `mcpcontrib`) or a
 repo (like `lilbattle`). See the playbook for layout details.
 
 Start tracking a channel with `disctrack onboard <name> <discord-url>`,
-which writes the channel manifest and the area folder, then pull it with
+which writes the channel manifest and its docs folder
+(`<gaps_dir>/<name>/`, one per channel), then pull it with
 `disctrack sync <name>`. Sync also tracks and syncs the channel's threads.
 The playbook covers the manifest shape, thread handling, and why the
 scraper runs from its own directory (a foreign-arch `.venv` in your cwd

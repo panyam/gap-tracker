@@ -25,7 +25,7 @@ Written by `channel` and `proposal`, read and edited by `update`. Sections in
 this order:
 
 ````markdown
-# Current gaps: <area-name>
+# Current gaps: <channel>
 
 Last refreshed: YYYY-MM-DD by /gaps <mode> [--window <w>]
 Window: <ISO_START> → <ISO_END>

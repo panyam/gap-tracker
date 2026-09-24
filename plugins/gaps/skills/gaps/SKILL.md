@@ -1,11 +1,19 @@
 ---
 name: gaps
-description: "Track and reconcile deltas between upstream (Discord channels, spec PRs, external docs) and our code repo, using the gap-tracker DB and per-area CURRENT_GAPS.md files. Three modes over one artifact: `channel` synthesizes a Discord channel's gap view, `proposal` synthesizes the non-Discord sources (spec PR activity, code-repo git log, external doc reviews), and `update` reconciles an area's gaps against the code repo and open issue list, then mutates both CURRENT_GAPS.md and gh state. Use when the user says \"refresh the channel\", \"refresh the proposals\", \"update gaps for <area>\", \"reconcile the gaps\", \"what changed upstream\", \"sync CURRENT_GAPS with the issues\", or names a Discord channel or spec PR to re-synthesize. Invoke as `/gaps channel`, `/gaps proposal`, or `/gaps update`."
+description: "Track and reconcile deltas between upstream (Discord channels, spec PRs, external docs) and our code repo, using the gap-tracker DB and one CURRENT_GAPS.md per tracked Discord channel. Three modes over one artifact: `channel` synthesizes a Discord channel's gap view, `proposal` synthesizes the non-Discord sources (spec PR activity, code-repo git log, external doc reviews), and `update` reconciles a channel's gaps against the code repo and open issue list, then mutates both CURRENT_GAPS.md and gh state. Use when the user says \"refresh the channel\", \"refresh the proposals\", \"update gaps for <channel>\", \"reconcile the gaps\", \"what changed upstream\", \"sync CURRENT_GAPS with the issues\", or names a Discord channel or spec PR to re-synthesize. Invoke as `/gaps channel`, `/gaps proposal`, or `/gaps update`."
 ---
 
 # gaps
 
-Deltas between upstream and our implementation, tracked per area in `CURRENT_GAPS.md`.
+Deltas between upstream and our implementation, tracked per Discord channel in
+`<gaps-dir>/<channel>/CURRENT_GAPS.md`.
+
+**A tracked Discord channel is the only entry point.** Every mode takes a
+channel name, and each non-thread channel owns exactly one docs folder,
+`<gaps-dir>/<channel>/`, named after the channel. Everything a mode needs about
+that channel (spec PRs, code paths, references, worktree) lives in its manifest,
+`<channels-dir>/<channel>.yaml`. Threads have no folder of their own and are
+read under their parent.
 
 ## Modes
 
@@ -14,12 +22,12 @@ Read the matching reference file, then follow it. Do not improvise a mode.
 | Invocation | Reference | Writes | What it does |
 |---|---|---|---|
 | `/gaps channel <name> [url] [--window <w>]` | `references/channel.md` | `CURRENT_GAPS.md` | Synthesizes a Discord channel's gap view from the local DB. |
-| `/gaps proposal <area\|pr-url> [url] [--window <w>]` | `references/proposal.md` | `CURRENT_GAPS.md` | Synthesizes spec PR activity, code-repo git log, and external doc reviews. |
-| `/gaps update <area> [flags]` | `references/update.md` | `CURRENT_GAPS.md` **and** `gh` | Reconciles gaps against code and issues, then executes approved actions. |
+| `/gaps proposal <channel\|pr-url> [pr-url] [--window <w>]` | `references/proposal.md` | `CURRENT_GAPS.md` | Synthesizes spec PR activity, code-repo git log, and external doc reviews. |
+| `/gaps update <channel> [flags]` | `references/update.md` | `CURRENT_GAPS.md` **and** `gh` | Reconciles gaps against code and issues, then executes approved actions. |
 
-`channel` and `proposal` are counterparts writing the same file. Areas with both
-Discord chatter and PR activity want both, and PR-primary areas with no channel
-want only `proposal`. They coexist through stable gap IDs and the
+`channel` and `proposal` are counterparts writing the same file. A channel with
+both Discord chatter and PR activity wants both, and a PR-primary channel whose
+Discord side is quiet may want only `proposal`. They coexist through stable gap IDs and the
 don't-re-propose rule. `update` runs after either one, and takes its input at
 face value, so refresh before reconciling if the file is stale.
 
@@ -30,7 +38,7 @@ artifacts, and only one of them mutates GitHub.
 
 Resolve the tracking root and load `<tracking-root>/.discord-tracking.yaml`. See
 `${CLAUDE_PLUGIN_ROOT}/reference/discord-tracking-playbook.md` for the resolver and the config schema.
-Throughout all three modes, placeholders like `<channels-dir>`, `<areas-dir>`,
+Throughout all three modes, placeholders like `<channels-dir>`, `<gaps-dir>`,
 `<code.name>`, `<code.repo>`, `<code.default_worktree>` and `<gapt.project_id>`
 refer to values from that config.
 
@@ -40,10 +48,10 @@ rather than walking the symlink by hand:
 
 - `disctrack config` prints the resolved tracking root and key fields (sanity check)
 - `disctrack channel <name>` prints the channel_id from `<channels-dir>/<name>.yaml`
-- `disctrack channels-dir` / `disctrack areas-dir` print the absolute paths
-- `disctrack area <name>` prints the absolute area folder path (must exist)
+- `disctrack channels-dir` / `disctrack gaps-dir` print the absolute paths
+- `disctrack dir <channel>` prints the channel's docs folder, `<gaps-dir>/<channel>` (fails for threads, untracked channels, and a missing folder)
 - `disctrack url <discord-url>` parses `https://discord.com/channels/<g>/<c>` and prints `"<g> <c>"` (for a thread URL, `<c>` is the thread's own id)
-- `disctrack onboard <name> <discord-url>` registers a new channel or thread: manifest plus area folder, refusing duplicates
+- `disctrack onboard <name> <discord-url>` registers a new channel or thread: manifest plus docs folder, refusing duplicates
 - `disctrack sync <name>` scrapes a channel into the local DB, then tracks and syncs its threads
 
 **No fallback to hardcoded paths.** If `disctrack config` fails, meaning no
@@ -119,7 +127,8 @@ below apply to every mode, including `update`.
 
 - **`gh` calls require `GH_TOKEN="$GH_PERSONAL_TOKEN"`.** Personal repos are not accessible via the EMU account.
 - **Auth-gated docs cannot be fetched.** Google Docs, Notion and the like get surfaced as manual-review reminders. Never attempt to fetch them.
-- **Never modify the area's `README.md`.** Stale findings about README stay surfaced in `CURRENT_GAPS.md` for the human to act on.
-- **gapt source mismatch.** An `area.yaml` `spec_prs[].repo` may not be in gapt's `sources[]`. Surface that as a finding rather than failing.
+- **Never modify the channel folder's `README.md`.** Stale findings about README stay surfaced in `CURRENT_GAPS.md` for the human to act on.
+- **gapt source mismatch.** A channel manifest's `spec_prs[].repo` may not be in gapt's `sources[]`. Surface that as a finding rather than failing.
+- **Legacy folder keys fail loudly.** A manifest carrying `area_folder` or `proposal_folder` that differs from its `name` makes the `disctrack` commands that load it (`channel`, `dir`, `sync`, `messages`) fail with a migration message. Surface that message verbatim and stop. Do not guess the folder.
 - **gapt re-classification is out of scope for every mode.** Surface the current classification, rationale and classified-at date as evidence. Reclassifying is a separate `gapt classify` workflow.
 - **Backlinks already created** by past commits or PRs cannot be retroactively removed from GitHub's cross-reference system. Editing a plan or body before execution prevents new backlinks, and old ones stay.
