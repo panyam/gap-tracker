@@ -23,6 +23,16 @@ classification flows through sync → triage → close.
 
 ```bash
 cd ~/newstack/gap-tracker
+make setup          # new box: both binaries + the disctrack sync toolchain
+make doctor         # verify every prerequisite
+```
+
+`make install` alone builds just the two Go binaries into `$GOBIN`, which is
+enough for `gapt`, `disctrack config`, `disctrack messages` and everything the
+`/gaps` skills read. It is **not** enough for `disctrack sync`. See
+*Scrape toolchain* below.
+
+```bash
 make install        # builds both gapt and disctrack into $GOBIN
 gapt version
 disctrack version
@@ -41,6 +51,39 @@ plumbing). No automatic check today — `make install` is the only
 guard. If sync output looks wrong (e.g., `0 issues` for a repo you
 know has a PR), check whether `stat $(which gapt)` is older than the
 source files you just pulled.
+
+### Scrape toolchain
+
+`disctrack sync` is the only verb that leaves the local DB. It shells out to
+`uv`, which runs `python/snapshot.py`, which drives Playwright + Chromium
+against a logged-in Discord profile. None of that arrives with `go install`, so
+a fresh box fails three times in a row, and each failure is only visible once
+the previous one is fixed:
+
+| Symptom | Missing piece |
+|---|---|
+| `error: start snapshot.py: exec: "uv": executable file not found in $PATH` | `uv` |
+| `Executable doesn't exist at ~/.cache/ms-playwright/chromium_headless_shell-*/...` | Chromium browser build |
+| `validateDependenciesLinux ... Host system is missing dependencies` | Chromium's system libraries |
+
+`make setup-scrape` installs all three and is safe to re-run. `make doctor`
+reports on each without changing anything, and its Chromium check is a real
+headless launch rather than a file-exists test, because the third failure only
+shows up at launch time.
+
+Two things worth knowing:
+
+- **`uv` comes from astral.sh, not pip.** Debian and Ubuntu ship Python as an
+  externally-managed environment (PEP 668), so `pip3 install uv` refuses to run.
+  The installer drops it in `~/.local/bin`, which must be on `PATH`.
+- **`playwright install-deps` uses apt** and needs root. The target uses `sudo`
+  when you are not already root.
+
+`doctor` cannot check the one remaining prerequisite: a valid Discord login,
+which lives in the Chromium profile dir (`discord.profile_dir` in
+`.discord-tracking.yaml`, default `<tracking-root>/profiles/default`). Sync
+launches headed by default so an expired login is visible. Once the profile is
+known-good, `--headless` works.
 
 ## Structure
 
