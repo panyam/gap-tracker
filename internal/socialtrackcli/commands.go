@@ -338,6 +338,15 @@ func notifyCmd() *cobra.Command {
 				return err
 			}
 			msg := notifyText(len(ranked), s)
+			if len(r.Config.XAccounts("")) > 0 {
+				last, err := socialtrack.LastVisit(db, "x")
+				if err != nil {
+					return err
+				}
+				if y, m, d := last.Date(); last.IsZero() || y != now.Year() || m != now.Month() || d != now.Day() {
+					msg += " X not checked today (socialtrack browse)."
+				}
+			}
 			if dry {
 				fmt.Fprintln(cmd.OutOrStdout(), msg)
 				return nil
@@ -639,4 +648,51 @@ func topicNames(cfg socialtrack.Config) string {
 		names = append(names, t.Name)
 	}
 	return strings.Join(names, ", ")
+}
+
+func browseCmd() *cobra.Command {
+	var topic string
+	var replies, printOnly bool
+	c := &cobra.Command{
+		Use:   "browse [x]",
+		Short: "Open a live X search over the topic's curated accounts in your browser",
+		Long: "Open the newest posts from the accounts listed under a topic's x.accounts, as a live X search " +
+			"in your default browser. socialtrack does not read X; you do, and `socialtrack add <url> --title ...` " +
+			"brings a post worth answering into the digest. The visit is recorded for the daily nudge.",
+		Args: cobra.MaximumNArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			if len(args) == 1 && args[0] != "x" {
+				return fmt.Errorf("only x can be browsed; Reddit is read by sync")
+			}
+			r, db, err := open()
+			if err != nil {
+				return err
+			}
+			if topic != "" {
+				if _, ok := r.Config.Topic(topic); !ok {
+					return fmt.Errorf("no topic %q (%s)", topic, topicNames(r.Config))
+				}
+			}
+			urls := socialtrack.XSearchURLs(r.Config.XAccounts(topic), replies)
+			if len(urls) == 0 {
+				return fmt.Errorf("no X accounts listed; add handles under a topic's x.accounts in %s", socialtrack.ConfigFile)
+			}
+			for _, u := range urls {
+				fmt.Fprintln(cmd.OutOrStdout(), u)
+				if !printOnly {
+					if err := exec.CommandContext(cmd.Context(), "open", u).Run(); err != nil {
+						return err
+					}
+				}
+			}
+			if printOnly {
+				return nil
+			}
+			return db.Create(&socialtrack.Visit{Source: "x", Topic: topic, At: time.Now()}).Error
+		},
+	}
+	c.Flags().StringVar(&topic, "topic", "", "only this topic's accounts")
+	c.Flags().BoolVar(&replies, "replies", false, "include the accounts' replies to others")
+	c.Flags().BoolVar(&printOnly, "print", false, "print the search links instead of opening them")
+	return c
 }

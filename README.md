@@ -24,7 +24,7 @@ later) and keeps a reply log and streak, so replying becomes a daily habit.
 It reads each configured subreddit's public RSS feed within Reddit's rate
 window (about one feed a minute without an API key), keeps posts matching
 `.social-tracking.yaml`'s keywords, and ranks them by match and freshness.
-`socialtrack today | ls | open <n> | show <n> | add <url> | mark <n> replied | streak | notify`, with one topic per project under one account. Discovery is automatic for Reddit; a thread from X, LinkedIn, HN, YC or anywhere else joins the same digest and streak through `add <url> --title ...`. The `/social`
+`socialtrack today | ls | open <n> | show <n> | add <url> | mark <n> replied | streak | notify`, with one topic per project under one account. Discovery is automatic for Reddit. For X, `browse` opens a live search over a topic's hand-curated `x.accounts` in your own browser (socialtrack never reads X). A post from X, LinkedIn, HN, YC or anywhere else joins the same digest and streak through `add <url> --title ...`. The `/social`
 skill drafts replies from the digest and never posts.
 
 ## Install

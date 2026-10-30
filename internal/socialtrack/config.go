@@ -55,6 +55,15 @@ type Topic struct {
 	// Watch terms are mentions to never miss (the project's name, its repo).
 	// Each hit adds three and keeps the post even in a keyword-filtered sub.
 	Watch []string `yaml:"watch"`
+
+	X XSection `yaml:"x"`
+}
+
+// XSection is a topic's hand-curated X accounts. socialtrack does not read X:
+// browse opens a live search over these accounts in the user's own browser,
+// and the posts worth answering come back in through add.
+type XSection struct {
+	Accounts []string `yaml:"accounts"`
 }
 
 type Subreddit struct {

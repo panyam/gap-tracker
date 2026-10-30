@@ -40,6 +40,13 @@ post, and hand over the text.
    `socialtrack -C <root> mark <id> replied --note "<one line>"` or `... skipped`.
    Then `socialtrack -C <root> streak`.
 
+### `/social x`
+
+Run `socialtrack -C <root> browse` (add `--topic <name>` if named). It opens a live X search over
+the topic's curated accounts in the user's browser and records the visit. **Do not read X yourself**:
+X forbids automated reading, so the user scrolls, and pastes or names the posts worth answering.
+Then `add` each one, and draft from what the user pasted.
+
 ### `/social add <url>`
 
 Run `socialtrack -C <root> add <url>` for a thread the user found themselves, on any network. A

@@ -8,6 +8,7 @@
 //	socialtrack open <n|id>             open a thread in the browser (n = digest rank)
 //	socialtrack show <n|id>             a thread's post and comments, from its feed
 //	socialtrack add <url> [--title t] [--topic t]   a thread found by hand, from any network
+//	socialtrack browse [--topic t]      open a live X search over the curated accounts
 //	socialtrack mark <n|id> replied|skipped [--note text]
 //	socialtrack streak                  replies per day and the current streak
 //	socialtrack notify                  a macOS notification summing up the digest
@@ -54,7 +55,7 @@ func newRoot() *cobra.Command {
 		Version:       fmt.Sprintf("%s (%s, %s)", Version, Commit, BuildDate),
 	}
 	root.PersistentFlags().StringVarP(&rootDir, "root", "C", "", "start resolving the tracking root here instead of cwd")
-	root.AddCommand(todayCmd(), syncCmd(), enrichCmd(), digestCmd(), lsCmd(), openCmd(), showCmd(), addCmd(), markCmd(), streakCmd(), notifyCmd(), configCmd())
+	root.AddCommand(todayCmd(), syncCmd(), enrichCmd(), digestCmd(), lsCmd(), openCmd(), showCmd(), addCmd(), browseCmd(), markCmd(), streakCmd(), notifyCmd(), configCmd())
 	return root
 }
 

@@ -1,7 +1,9 @@
 package socialtrack
 
 import (
+	"fmt"
 	"net/http"
+	"net/url"
 	"os"
 	"path/filepath"
 	"strings"
@@ -295,5 +297,39 @@ func TestParseLinkRecognisesEachNetwork(t *testing.T) {
 		if _, err := ParseLink(bad); err == nil {
 			t.Errorf("%q accepted", bad)
 		}
+	}
+}
+
+func TestXSearchURLsCoverEveryAccountWithinTheLimit(t *testing.T) {
+	got := XSearchURLs([]string{"@Alice", "bob", "alice", " "}, false)
+	if len(got) != 1 {
+		t.Fatalf("%d urls, want 1: %v", len(got), got)
+	}
+	q, _ := url.ParseQuery(strings.SplitN(got[0], "?", 2)[1])
+	if q.Get("q") != "(from:alice OR from:bob) -filter:replies" || q.Get("f") != "live" {
+		t.Errorf("query %q f=%q", q.Get("q"), q.Get("f"))
+	}
+
+	var many []string
+	for i := 0; i < 60; i++ {
+		many = append(many, fmt.Sprintf("account_%02d", i))
+	}
+	urls := XSearchURLs(many, true)
+	if len(urls) < 2 {
+		t.Fatalf("60 accounts fit one query: %v", urls)
+	}
+	seen := 0
+	for _, u := range urls {
+		q, _ := url.ParseQuery(strings.SplitN(u, "?", 2)[1])
+		if len(q.Get("q")) > xQueryLimit {
+			t.Errorf("query of %d chars over the limit", len(q.Get("q")))
+		}
+		if strings.Contains(q.Get("q"), "filter:replies") {
+			t.Error("replies asked for, but filtered out")
+		}
+		seen += strings.Count(q.Get("q"), "from:")
+	}
+	if seen != 60 {
+		t.Errorf("searches cover %d accounts, want 60", seen)
 	}
 }

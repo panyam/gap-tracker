@@ -48,6 +48,24 @@ type Post struct {
 
 func (Post) TableName() string { return "posts" }
 
+// Visit records the user opening a source to read it by hand (browse), so
+// the nudge can say which curated feeds have not been looked at today.
+type Visit struct {
+	ID     uint      `gorm:"primaryKey"`
+	Source string    `gorm:"column:source;not null;index"`
+	Topic  string    `gorm:"column:topic"`
+	At     time.Time `gorm:"column:at;not null;index"`
+}
+
+func (Visit) TableName() string { return "visits" }
+
+// LastVisit is when the user last browsed a source, zero if never.
+func LastVisit(db *gorm.DB, source string) (time.Time, error) {
+	var v Visit
+	err := db.Where("source = ?", source).Order("at desc").Limit(1).Find(&v).Error
+	return v.At, err
+}
+
 // OpenDB opens (creating if needed) the store at <root>/social.db.
 func (r *Resolved) OpenDB() (*gorm.DB, error) {
 	path := r.DBFile()
@@ -58,7 +76,7 @@ func (r *Resolved) OpenDB() (*gorm.DB, error) {
 	if err != nil {
 		return nil, err
 	}
-	if err := db.AutoMigrate(&Post{}); err != nil {
+	if err := db.AutoMigrate(&Post{}, &Visit{}); err != nil {
 		return nil, err
 	}
 	return db, nil
