@@ -40,6 +40,12 @@ post, and hand over the text.
    `socialtrack -C <root> mark <id> replied --note "<one line>"` or `... skipped`.
    Then `socialtrack -C <root> streak`.
 
+### `/social add <url>`
+
+Run `socialtrack -C <root> add <url>` for a thread the user found themselves, on any network. A
+Reddit link fills itself in from the thread's feed; any other link needs `--title "<title>"`, which
+you take from what the user pasted or said. Add `--topic <name>` when no topic's keywords match.
+
 ### `/social streak`
 
 Run `socialtrack -C <root> streak` and show it as is.

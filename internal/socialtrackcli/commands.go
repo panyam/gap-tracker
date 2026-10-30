@@ -461,11 +461,20 @@ func findPost(r *socialtrack.Resolved, db *gorm.DB, arg string) (socialtrack.Pos
 		}
 		return ranked[n-1].Post, nil
 	}
-	ids := []string{arg, "reddit:" + arg, "reddit:t3_" + arg}
-	if err := db.Where("id IN ?", ids).First(&p).Error; err != nil {
-		return p, fmt.Errorf("no stored post %s (try `socialtrack ls`)", arg)
+	// A short id is the tail of a full one on any network: reddit:t3_<id>,
+	// x:<id>, linkedin:<hash>.
+	var found []socialtrack.Post
+	if err := db.Where("id = ? OR id LIKE ? OR id LIKE ?", arg, "%:"+arg, "%:t3_"+arg).Limit(2).Find(&found).Error; err != nil {
+		return p, err
 	}
-	return p, nil
+	switch len(found) {
+	case 0:
+		return p, fmt.Errorf("no stored post %s (try `socialtrack ls`)", arg)
+	case 1:
+		return found[0], nil
+	default:
+		return p, fmt.Errorf("%s names more than one post (%s, %s); use the full id", arg, found[0].ID, found[1].ID)
+	}
 }
 
 func lsCmd() *cobra.Command {
@@ -536,4 +545,98 @@ func openCmd() *cobra.Command {
 			return exec.CommandContext(cmd.Context(), "open", p.URL).Run()
 		},
 	}
+}
+
+func addCmd() *cobra.Command {
+	var title, topic, note string
+	c := &cobra.Command{
+		Use:   "add <url>",
+		Short: "Add a thread by hand, from Reddit, X, HN, LinkedIn, YC or anywhere",
+		Long: "Add a thread you found yourself, so it joins the digest, ls, open, mark and the streak. " +
+			"A Reddit link is read from the thread's feed for its title, author, time and reply count. " +
+			"Any other link needs --title, and is dated now.",
+		Args: cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			r, db, err := open()
+			if err != nil {
+				return err
+			}
+			l, err := socialtrack.ParseLink(args[0])
+			if err != nil {
+				return err
+			}
+			var existing socialtrack.Post
+			if db.First(&existing, "id = ?", l.ID).Error == nil {
+				fmt.Fprintf(cmd.OutOrStdout(), "already stored: %s  %s (%s)\n", shortID(existing.ID), existing.Title, existing.Status)
+				return nil
+			}
+			now := time.Now()
+			p := socialtrack.Post{ID: l.ID, Source: l.Source, Community: l.Community, URL: l.URL, Title: title, PostedAt: now, Note: note}
+			replies, enriched := -1, time.Time{}
+			if l.Source == "reddit" {
+				th, err := r.Thread(cmd.Context(), httpClient, p, progress(cmd))
+				if err != nil {
+					return fmt.Errorf("read the thread's feed: %w", err)
+				}
+				if p.Title == "" {
+					p.Title = th.Title
+				}
+				p.Author, p.Body, p.PostedAt = th.Author, th.Body, th.When
+				replies, enriched = len(th.Comments), now
+			}
+			if p.Title == "" {
+				return fmt.Errorf("a %s link needs --title, since socialtrack cannot read %s threads", l.Source, l.Source)
+			}
+			topics, terms := addTopics(r.Config, p, topic)
+			if len(topics) == 0 {
+				return fmt.Errorf("no topic matches this thread; name one with --topic (%s)", topicNames(r.Config))
+			}
+			p.Topics, p.Matched = strings.Join(topics, ","), strings.Join(terms, ",")
+			if _, err := socialtrack.Upsert(db, []socialtrack.Post{p}, now); err != nil {
+				return err
+			}
+			if replies >= 0 {
+				db.Model(&socialtrack.Post{}).Where("id = ?", p.ID).Updates(map[string]any{"replies": replies, "enriched_at": enriched})
+			}
+			fmt.Fprintf(cmd.OutOrStdout(), "added %s  %s (%s, topic %s)\n", shortID(p.ID), p.Title, p.Community, p.Topics)
+			return nil
+		},
+	}
+	c.Flags().StringVar(&title, "title", "", "the thread's title (required for anything but Reddit)")
+	c.Flags().StringVar(&topic, "topic", "", "the topic it belongs to (default: the topics whose keywords it matches, or the only topic)")
+	c.Flags().StringVar(&note, "note", "", "why it is worth a reply")
+	return c
+}
+
+// addTopics picks the topics a hand-added thread belongs to: the one named,
+// else every topic whose keywords or watch terms it matches, else the only
+// topic when there is just one.
+func addTopics(cfg socialtrack.Config, p socialtrack.Post, named string) (topics, terms []string) {
+	if named != "" {
+		t, ok := cfg.Topic(named)
+		if !ok {
+			return nil, nil
+		}
+		kw, w := socialtrack.Match(p, t.Keywords, t.Watch)
+		return []string{named}, append(w, kw...)
+	}
+	for _, t := range cfg.Topics {
+		kw, w := socialtrack.Match(p, t.Keywords, t.Watch)
+		if len(kw)+len(w) > 0 {
+			topics = append(topics, t.Name)
+			terms = append(terms, append(w, kw...)...)
+		}
+	}
+	if len(topics) == 0 && len(cfg.Topics) == 1 {
+		topics = []string{cfg.Topics[0].Name}
+	}
+	return topics, terms
+}
+
+func topicNames(cfg socialtrack.Config) string {
+	var names []string
+	for _, t := range cfg.Topics {
+		names = append(names, t.Name)
+	}
+	return strings.Join(names, ", ")
 }

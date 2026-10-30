@@ -272,3 +272,28 @@ func TestRateWaitReadsRedditsWindow(t *testing.T) {
 		t.Errorf("no headers: wait %v, want 0", got)
 	}
 }
+
+func TestParseLinkRecognisesEachNetwork(t *testing.T) {
+	for _, tc := range []struct{ in, source, id, community string }{
+		{"https://www.reddit.com/r/KiCad/comments/1xj1bde/some_title/", "reddit", "reddit:t3_1xj1bde", "r/KiCad"},
+		{"https://old.reddit.com/r/KiCad/comments/1xj1bde/", "reddit", "reddit:t3_1xj1bde", "r/KiCad"},
+		{"https://x.com/someone/status/1850000000000000000?s=20", "x", "x:1850000000000000000", "@someone"},
+		{"https://twitter.com/someone/status/1850000000000000000", "x", "x:1850000000000000000", "@someone"},
+		{"https://news.ycombinator.com/item?id=41000000", "hn", "hn:41000000", "hn"},
+	} {
+		l, err := ParseLink(tc.in)
+		if err != nil || l.Source != tc.source || l.ID != tc.id || l.Community != tc.community {
+			t.Errorf("%s: %+v, %v", tc.in, l, err)
+		}
+	}
+	a, _ := ParseLink("https://www.linkedin.com/posts/someone_activity-123/")
+	b, _ := ParseLink("https://www.linkedin.com/posts/someone_activity-123")
+	if a.Source != "linkedin" || a.ID != b.ID || !strings.HasPrefix(a.ID, "linkedin:") {
+		t.Errorf("linkedin ids %q and %q should be one hashed id", a.ID, b.ID)
+	}
+	for _, bad := range []string{"not a url", "https://www.reddit.com/r/KiCad/", "https://x.com/someone", "ftp://example.com/x"} {
+		if _, err := ParseLink(bad); err == nil {
+			t.Errorf("%q accepted", bad)
+		}
+	}
+}
