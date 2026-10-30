@@ -52,14 +52,15 @@ type atomEntry struct {
 	Content string `xml:"content"`
 }
 
-// ErrRateLimited is a 429 from Reddit. Wait says how long until the window resets.
+// ErrRateLimited is a 429 from Reddit. Sub names what was asked for (r/<sub>,
+// u/<user>, a thread URL); Wait says how long until the window resets.
 type ErrRateLimited struct {
 	Sub  string
 	Wait time.Duration
 }
 
 func (e *ErrRateLimited) Error() string {
-	return fmt.Sprintf("r/%s: rate limited, window resets in %s", e.Sub, e.Wait.Round(time.Second))
+	return fmt.Sprintf("%s: rate limited, window resets in %s", e.Sub, e.Wait.Round(time.Second))
 }
 
 // FetchSubreddit reads one subreddit's newest posts. It also returns how long
@@ -82,7 +83,7 @@ func FetchSubreddit(ctx context.Context, client *http.Client, userAgent, sub str
 		if wait == 0 {
 			wait = time.Minute
 		}
-		return nil, wait, &ErrRateLimited{Sub: sub, Wait: wait}
+		return nil, wait, &ErrRateLimited{Sub: "r/" + sub, Wait: wait}
 	}
 	if resp.StatusCode != http.StatusOK {
 		return nil, wait, fmt.Errorf("r/%s: HTTP %d", sub, resp.StatusCode)
