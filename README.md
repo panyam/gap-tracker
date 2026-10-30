@@ -19,21 +19,29 @@ See [docs/STATE_MACHINE.md](docs/STATE_MACHINE.md) for the full state
 model and developer entry points — it's the design anchor for how
 classification flows through sync → triage → close.
 
+A third binary, `socialtrack`, finds threads worth replying to on Reddit (X
+later) and keeps a reply log and streak, so replying becomes a daily habit.
+It reads each configured subreddit's public RSS feed within Reddit's rate
+window (about one feed a minute without an API key), keeps posts matching
+`.social-tracking.yaml`'s keywords, and ranks them by match and freshness.
+`socialtrack today | ls | open <n> | show <n> | mark <n> replied | streak | notify`, with one topic per project under one account. The `/social`
+skill drafts replies from the digest and never posts.
+
 ## Install
 
 ```bash
 cd ~/newstack/gap-tracker
-make setup          # new box: both binaries + the disctrack sync toolchain
+make setup          # new box: the binaries + the disctrack sync toolchain
 make doctor         # verify every prerequisite
 ```
 
-`make install` alone builds just the two Go binaries into `$GOBIN`, which is
-enough for `gapt`, `disctrack config`, `disctrack messages` and everything the
-`/gaps` skills read. It is **not** enough for `disctrack sync`. See
-*Scrape toolchain* below.
+`make install` alone builds the Go binaries (gapt, disctrack, socialtrack) into
+`$GOBIN`, which is enough for `gapt`, `disctrack config`, `disctrack messages`,
+everything the `/gaps` skills read, and all of `socialtrack`. It is **not**
+enough for `disctrack sync`. See *Scrape toolchain* below.
 
 ```bash
-make install        # builds both gapt and disctrack into $GOBIN
+make install        # builds gapt, disctrack and socialtrack into $GOBIN
 gapt version
 disctrack version
 ```

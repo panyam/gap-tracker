@@ -1,7 +1,7 @@
 {
   "name": "gaps",
-  "description": "Track and reconcile deltas between upstream (Discord channels, spec PRs, external docs) and our code repos. Ships the /gaps skill, the /gap-track command, and the discord-tracking playbook they share.",
-  "version": "0.2.0",
+  "description": "Track and reconcile deltas between upstream (Discord channels, spec PRs, external docs) and our code repos, and keep a daily social reply habit. Ships the /gaps and /social skills, the /gap-track command, and the discord-tracking playbook.",
+  "version": "0.3.0",
   "author": {
     "name": "panyam"
   }

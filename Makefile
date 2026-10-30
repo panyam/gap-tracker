@@ -22,6 +22,11 @@ DT_BIN       := disctrack
 DT_PKG       := ./cmd/disctrack
 DT_LOCAL     := $(BIN_DIR)/$(DT_BIN)
 
+# socialtrack build inputs
+ST_BIN       := socialtrack
+ST_PKG       := ./cmd/socialtrack
+ST_LOCAL     := $(BIN_DIR)/$(ST_BIN)
+
 VERSION      ?= $(shell git describe --tags --always --dirty 2>/dev/null || echo dev)
 COMMIT       ?= $(shell git rev-parse --short HEAD 2>/dev/null || echo unknown)
 BUILD_DATE   ?= $(shell date -u +%Y-%m-%dT%H:%M:%SZ)
@@ -36,8 +41,12 @@ DT_LDFLAGS   := -X github.com/panyam/gap-tracker/internal/disctrackcli.Version=$
                 -X github.com/panyam/gap-tracker/internal/disctrackcli.BuildDate=$(BUILD_DATE) \
                 -X github.com/panyam/gap-tracker/internal/disctrack.DefaultSnapshotScript=$(DT_SNAPSHOT)
 
+ST_LDFLAGS   := -X github.com/panyam/gap-tracker/internal/socialtrackcli.Version=$(VERSION) \
+                -X github.com/panyam/gap-tracker/internal/socialtrackcli.Commit=$(COMMIT) \
+                -X github.com/panyam/gap-tracker/internal/socialtrackcli.BuildDate=$(BUILD_DATE)
+
 .PHONY: check-paths all build install test tidy fmt vet clean smoke help \
-        build-gapt build-disctrack install-gapt install-disctrack smoke-gapt smoke-disctrack \
+        build-gapt build-disctrack build-socialtrack install-gapt install-disctrack install-socialtrack smoke-gapt smoke-disctrack \
         setup setup-scrape doctor
 
 all: build
@@ -50,6 +59,7 @@ help:
 	@echo "  build-disctrack    build only disctrack"
 	@echo "  install-gapt       install only gapt"
 	@echo "  install-disctrack  install only disctrack"
+	@echo "  install-socialtrack install only socialtrack"
 	@echo "  smoke              build both + print versions/help"
 	@echo "  setup              install both binaries + the scrape toolchain (new box)"
 	@echo "  setup-scrape       uv + Playwright Chromium + its system libs (disctrack sync)"
@@ -60,7 +70,7 @@ help:
 	@echo "  vet                go vet ./..."
 	@echo "  clean              remove $(BIN_DIR)"
 
-build: build-gapt build-disctrack
+build: build-gapt build-disctrack build-socialtrack
 
 build-gapt:
 	@mkdir -p $(BIN_DIR)
@@ -72,7 +82,12 @@ build-disctrack:
 	go build -ldflags "$(DT_LDFLAGS)" -o $(DT_LOCAL) $(DT_PKG)
 	@echo "built $(DT_LOCAL)"
 
-install: install-gapt install-disctrack
+build-socialtrack:
+	@mkdir -p $(BIN_DIR)
+	go build -ldflags "$(ST_LDFLAGS)" -o $(ST_LOCAL) $(ST_PKG)
+	@echo "built $(ST_LOCAL)"
+
+install: install-gapt install-disctrack install-socialtrack
 
 install-gapt:
 	@echo "installing $(GAPT_BIN) to $(GOBIN)"
@@ -83,6 +98,11 @@ install-disctrack:
 	@echo "installing $(DT_BIN) to $(GOBIN)"
 	go install -ldflags "$(DT_LDFLAGS)" $(DT_PKG)
 	@echo "installed: $(GOBIN)/$(DT_BIN)"
+
+install-socialtrack:
+	@echo "installing $(ST_BIN) to $(GOBIN)"
+	go install -ldflags "$(ST_LDFLAGS)" $(ST_PKG)
+	@echo "installed: $(GOBIN)/$(ST_BIN)"
 
 test: check-paths
 	go test ./...
