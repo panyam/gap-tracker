@@ -44,11 +44,12 @@ func Keep(p Post, topics []Topic) (kept, terms []string) {
 				sub = &t.Subreddits[i]
 			}
 		}
-		if sub == nil {
+		followed := t.Follows(p.Author)
+		if sub == nil && !followed {
 			continue
 		}
 		kw, w := Match(p, t.Keywords, t.Watch)
-		if !sub.All && len(kw)+len(w) == 0 {
+		if !followed && !sub.All && len(kw)+len(w) == 0 {
 			continue
 		}
 		kept = append(kept, t.Name)
@@ -112,7 +113,11 @@ func TopicImpact(p Post, topics []Topic) float64 {
 	for _, name := range strings.Split(p.Topics, ",") {
 		for _, t := range topics {
 			if t.Name == name {
-				best = math.Max(best, Impact(p, t.Keywords, t.Watch, t.WeightOf(p.Community)))
+				weight := t.WeightOf(p.Community)
+				if t.Follows(p.Author) {
+					weight = math.Max(weight, 2)
+				}
+				best = math.Max(best, Impact(p, t.Keywords, t.Watch, weight))
 			}
 		}
 	}

@@ -51,10 +51,10 @@ func runSync(cmd *cobra.Command, r *socialtrack.Resolved, db *gorm.DB) error {
 	for _, res := range results {
 		if res.Err != nil {
 			failed++
-			fmt.Fprintf(cmd.OutOrStdout(), "r/%-22s failed: %v\n", res.Name, res.Err)
+			fmt.Fprintf(cmd.OutOrStdout(), "%-24s failed: %v\n", label(res.Name), res.Err)
 			continue
 		}
-		fmt.Fprintf(cmd.OutOrStdout(), "r/%-22s %3d read, %3d kept, %3d new\n", res.Name, res.Fetched, res.Kept, res.New)
+		fmt.Fprintf(cmd.OutOrStdout(), "%-24s %3d read, %3d kept, %3d new\n", label(res.Name), res.Fetched, res.Kept, res.New)
 	}
 	if failed == len(results) && failed > 0 {
 		return fmt.Errorf("every source failed")
@@ -433,7 +433,15 @@ func showCmd() *cobra.Command {
 }
 
 func writeThread(w io.Writer, p socialtrack.Post, th socialtrack.Thread, max int) error {
-	fmt.Fprintf(w, "# %s\n\n%s · u/%s · %s\n%s\n\n%s\n\n## %d comment(s)\n\n", th.Title, p.Community, th.Author, th.When.Format("2006-01-02 15:04"), p.URL, th.Body, len(th.Comments))
+	fmt.Fprintf(w, "# %s\n\n%s · u/%s · %s\n%s\n\n%s\n\n", th.Title, p.Community, th.Author, th.When.Format("2006-01-02 15:04"), p.URL, th.Body)
+	if len(th.Images) > 0 {
+		fmt.Fprintf(w, "## %d image(s)\n\n", len(th.Images))
+		for _, u := range th.Images {
+			fmt.Fprintf(w, "- %s\n", u)
+		}
+		fmt.Fprintln(w)
+	}
+	fmt.Fprintf(w, "## %d comment(s)\n\n", len(th.Comments))
 	for i, c := range th.Comments {
 		if max > 0 && i == max {
 			fmt.Fprintf(w, "(%d more not shown)\n", len(th.Comments)-max)
@@ -695,4 +703,12 @@ func browseCmd() *cobra.Command {
 	c.Flags().BoolVar(&replies, "replies", false, "include the accounts' replies to others")
 	c.Flags().BoolVar(&printOnly, "print", false, "print the search links instead of opening them")
 	return c
+}
+
+// label names a sync result: a subreddit as r/<name>, a user as given (u/<name>).
+func label(name string) string {
+	if strings.HasPrefix(name, "u/") {
+		return name
+	}
+	return "r/" + name
 }

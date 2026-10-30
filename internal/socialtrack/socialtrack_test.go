@@ -333,3 +333,44 @@ func TestXSearchURLsCoverEveryAccountWithinTheLimit(t *testing.T) {
 		t.Errorf("searches cover %d accounts, want 60", seen)
 	}
 }
+
+func TestFollowedUsersAreKeptAnywhereAndWeighDouble(t *testing.T) {
+	feed := `<feed xmlns="http://www.w3.org/2005/Atom">
+  <entry><author><name>/u/Mentor</name></author><id>t3_uuu111</id><title>My bench supply build</title>
+    <link href="https://www.reddit.com/r/SomewhereElse/comments/uuu111/bench/"/>
+    <content type="html">&lt;p&gt;Photos.&lt;/p&gt;</content><published>2026-10-29T10:00:00+00:00</published></entry>
+</feed>`
+	posts, err := ParseRedditFeed(strings.NewReader(feed), "")
+	if err != nil || len(posts) != 1 {
+		t.Fatalf("%v, %v", posts, err)
+	}
+	p := posts[0]
+	if p.Community != "r/SomewhereElse" {
+		t.Errorf("a user feed entry's community is %q, want its own subreddit", p.Community)
+	}
+	follows := Topic{Name: "agni", Users: []string{"u/mentor"}, Keywords: keywords}
+	names, _ := Keep(p, []Topic{follows})
+	if strings.Join(names, ",") != "agni" {
+		t.Errorf("followed user's off-topic post in an unread sub kept by %v", names)
+	}
+	if names, _ := Keep(p, []Topic{agniTopic}); len(names) != 0 {
+		t.Errorf("an unfollowed author's post in an unread sub kept by %v", names)
+	}
+	p.Topics = "agni"
+	if got := TopicImpact(p, []Topic{follows}); got != 2 {
+		t.Errorf("impact %v, want 2 (base 1, followed weight 2)", got)
+	}
+	cfg := Config{Topics: []Topic{follows, {Name: "b", Users: []string{"Mentor", " /u/other "}}}}
+	if strings.Join(cfg.RedditUsers(), ",") != "mentor,other" {
+		t.Errorf("users %v", cfg.RedditUsers())
+	}
+}
+
+func TestImageLinksFindsScreenshotsOnce(t *testing.T) {
+	content := `&lt;a href="https://i.redd.it/abc123.png"&gt;&lt;img src="https://preview.redd.it/x.png?width=640&amp;amp;s=1"/&gt;&lt;/a&gt; and https://i.redd.it/abc123.png again, plus https://www.reddit.com/gallery/zzz9 and https://example.com/not.png`
+	got := ImageLinks(content)
+	want := "https://i.redd.it/abc123.png https://preview.redd.it/x.png?width=640&s=1 https://www.reddit.com/gallery/zzz9"
+	if strings.Join(got, " ") != want {
+		t.Errorf("got  %v\nwant %v", got, want)
+	}
+}

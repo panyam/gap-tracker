@@ -18,6 +18,22 @@ import (
 // an approved API key (Reddit's Responsible Builder Policy, November 2025).
 const redditFeedURL = "https://www.reddit.com/r/%s/new/.rss?limit=50"
 
+// redditUserFeedURL is the feed of posts a user submitted, newest first.
+const redditUserFeedURL = "https://www.reddit.com/user/%s/submitted/.rss?limit=25"
+
+var linkSub = regexp.MustCompile(`/r/([^/]+)/comments/`)
+
+// FetchUser reads the posts a Reddit user submitted, wherever they posted them.
+func FetchUser(ctx context.Context, client *http.Client, userAgent, user string) ([]Post, time.Duration, error) {
+	body, wait, err := getFeed(ctx, client, userAgent, fmt.Sprintf(redditUserFeedURL, user), "u/"+user)
+	if err != nil {
+		return nil, wait, err
+	}
+	defer body.Close()
+	posts, err := ParseRedditFeed(body, "")
+	return posts, wait, err
+}
+
 type atomFeed struct {
 	Entries []atomEntry `xml:"entry"`
 }
@@ -91,6 +107,26 @@ type Thread struct {
 	Body     string
 	When     time.Time
 	Comments []Comment
+
+	// Images are the picture links in the post: review requests are mostly
+	// schematic screenshots, which the reader opens and looks at themselves.
+	Images []string
+}
+
+var imageLink = regexp.MustCompile(`https://(?:i\.redd\.it|preview\.redd\.it|i\.imgur\.com|imgur\.com|(?:www\.)?reddit\.com/gallery)/[^"'<>\s]+`)
+
+// ImageLinks lists the distinct picture links in a post's HTML, in order.
+func ImageLinks(content string) []string {
+	seen := map[string]bool{}
+	var out []string
+	for _, m := range imageLink.FindAllString(html.UnescapeString(html.UnescapeString(content)), -1) {
+		m = strings.TrimRight(m, ".,)")
+		if !seen[m] {
+			seen[m] = true
+			out = append(out, m)
+		}
+	}
+	return out
 }
 
 // FetchThread reads a thread's own feed: the post (a t3_ entry) and one t1_
@@ -118,6 +154,7 @@ func ParseThread(r io.Reader) (Thread, error) {
 		switch {
 		case strings.HasPrefix(e.ID, "t3_"):
 			th.Title, th.Author, th.Body, th.When = e.Title, author, plainText(e.Content), when
+			th.Images = ImageLinks(e.Content)
 		case strings.HasPrefix(e.ID, "t1_"):
 			th.Comments = append(th.Comments, Comment{Author: author, Body: plainText(e.Content), When: when})
 		}
@@ -217,10 +254,18 @@ func ParseRedditFeed(r io.Reader, sub string) ([]Post, error) {
 		if err != nil {
 			return nil, fmt.Errorf("r/%s: entry %s: time %q: %w", sub, e.ID, when, err)
 		}
+		community := "r/" + sub
+		if sub == "" {
+			// A user's feed spans subreddits; each entry's link names its own.
+			community = "reddit"
+			if m := linkSub.FindStringSubmatch(e.Link.Href); m != nil {
+				community = "r/" + m[1]
+			}
+		}
 		posts = append(posts, Post{
 			ID:        "reddit:" + e.ID,
 			Source:    "reddit",
-			Community: "r/" + sub,
+			Community: community,
 			Title:     e.Title,
 			Author:    strings.TrimPrefix(e.Author.Name, "/u/"),
 			URL:       e.Link.Href,

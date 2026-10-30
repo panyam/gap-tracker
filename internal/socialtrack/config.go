@@ -47,6 +47,10 @@ type Topic struct {
 
 	Subreddits []Subreddit `yaml:"subreddits"`
 
+	// Users are Reddit accounts followed by hand. Every post they submit is
+	// kept, wherever they post it, and weighs at least double.
+	Users []string `yaml:"users"`
+
 	// Keywords mark a post as on-topic. Matched case-insensitively, as whole
 	// words or phrases, against the title and body; each hit adds one to the
 	// post's impact.
@@ -103,6 +107,40 @@ func (c Config) Subreddits() []string {
 		}
 	}
 	return out
+}
+
+// RedditUsers lists every Reddit user any topic follows, once each.
+func (c Config) RedditUsers() []string {
+	seen := map[string]bool{}
+	var out []string
+	for _, t := range c.Topics {
+		for _, u := range t.Users {
+			u = normUser(u)
+			if u != "" && !seen[u] {
+				seen[u] = true
+				out = append(out, u)
+			}
+		}
+	}
+	return out
+}
+
+// Follows reports whether the topic follows this Reddit user.
+func (t Topic) Follows(author string) bool {
+	a := normUser(author)
+	for _, u := range t.Users {
+		if a != "" && normUser(u) == a {
+			return true
+		}
+	}
+	return false
+}
+
+func normUser(u string) string {
+	u = strings.TrimSpace(u)
+	u = strings.TrimPrefix(u, "/u/")
+	u = strings.TrimPrefix(u, "u/")
+	return strings.ToLower(u)
 }
 
 // Topic returns the topic with this name.

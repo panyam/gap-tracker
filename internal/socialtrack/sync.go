@@ -116,6 +116,37 @@ func (r *Resolved) SyncReddit(ctx context.Context, db *gorm.DB, client *http.Cli
 		res.New, res.Err = Upsert(db, keep, now())
 		out = append(out, res)
 	}
+	for _, user := range cfg.RedditUsers() {
+		res := SubredditResult{Name: "u/" + user}
+		var posts []Post
+		err := g.fetch(func() (time.Duration, error) {
+			var next time.Duration
+			var err error
+			posts, next, err = FetchUser(ctx, client, cfg.Reddit.UserAgent, user)
+			return next, err
+		})
+		if ctx.Err() != nil {
+			return out
+		}
+		if err != nil {
+			res.Err = err
+			out = append(out, res)
+			continue
+		}
+		res.Fetched = len(posts)
+		var keep []Post
+		for _, p := range posts {
+			topics, terms := Keep(p, cfg.Topics)
+			if len(topics) == 0 {
+				continue
+			}
+			p.Topics, p.Matched = strings.Join(topics, ","), strings.Join(terms, ",")
+			keep = append(keep, p)
+		}
+		res.Kept = len(keep)
+		res.New, res.Err = Upsert(db, keep, now())
+		out = append(out, res)
+	}
 	return out
 }
 
