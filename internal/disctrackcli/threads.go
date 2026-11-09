@@ -45,8 +45,8 @@ the parent channel once to backfill the id, then re-run discover.
 This reads the local DB only; it never opens the browser. Run
 'disctrack sync <parent>' first if the channel is stale.
 
-  disctrack threads discover triggers-events-wg
-  disctrack threads discover triggers-events-wg --untracked -o pretty`,
+  disctrack threads discover tasks-events-wg
+  disctrack threads discover tasks-events-wg --untracked -o pretty`,
 		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if threadsDiscoverOutput != msgOutputYAML &&
