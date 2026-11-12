@@ -25,17 +25,19 @@ post, and hand over the text.
    and say so rather than waiting silently.
 2. The digest is ranked by impact (matched terms, the subreddit's weight, whether it asks
    something) times urgency (age, and how many replies it already has). Take the top **five**
-   the user can add something to today. Prefer, in order: a direct
-   question in the user's domain (schematic review, a missing pull-up, decoupling, ESD, connectors,
-   KiCad and EDIF tooling), a review request with a concrete schematic, a mention of agni. Skip
-   threads that are already well answered, that want a buying recommendation, or where the honest
-   reply is "it depends" with nothing to add.
+   the user can add something to today. Prefer, in order: a direct question inside the lane (see
+   "Stay in the lane" below), a question about the tooling itself (ERC, netlists, KiCad and EDIF,
+   schematic review tools), a review request whose open points fall in the lane, a mention of
+   agni. Skip threads that are already well answered, that want a buying recommendation, where the
+   honest reply is "it depends" with nothing to add, or where every open point is outside the lane.
 3. Read each of the five with `socialtrack -C <root> show <id>`, which prints the post and its
    comments from the thread's own feed (the access Reddit offers without an API key; about a minute
    a thread within its rate window). Do not open Reddit pages with WebFetch or a browser: Reddit
    refuses automated page loads. If the user pastes a thread instead, use that.
 4. Draft one reply per thread, following the voice and rules below. Show each as: the thread title,
-   its URL, one line on why it is worth answering, then the draft in a quote block.
+   its URL, one line on why it is worth answering, then the draft in a quote block. Under the
+   draft, list each point's source for the user, not for the post: the rule page or `learn/`
+   chapter it rests on, or the datasheet and section to open before posting.
 5. End with the commands to record the outcome, one per thread:
    `socialtrack -C <root> mark <id> replied --note "<one line>"` or `... skipped`.
    Then `socialtrack -C <root> streak`.
@@ -68,6 +70,24 @@ each, raised as an observation rather than a verdict ("I wonder if SDA needs its
 "Also not sure the TVS is on the connector side"). No headers, no bullet lists unless the thread
 itself is a list, no "Great question!", no sign-off. Keep the electrical facts exact; if a fact is
 uncertain, say what would settle it (a datasheet section, a measurement).
+
+## Stay in the lane
+
+Every reply goes out under the user's name, and someone will ask a follow-up. So a draft makes only
+points the user can defend from their own project's knowledge, never from Claude's general recall.
+
+- The lane is what the topic's project already checks or teaches. For agni that is the rule catalog
+  in `docsite/content/reference/rules/` and the `learn/` chapters: pull-ups, decoupling on every
+  power pin, strapping and boot pins, ESD at connectors, power entry, floating inputs, DNP parts,
+  net naming. Read the rule page before making the point, so the reply says what the rule says.
+- Outside the lane, a point is allowed only when it cites the exact datasheet section and is phrased
+  as worth checking ("the strapping table in the C3 datasheet has the levels"), never as a verdict
+  or a number from memory.
+- Leave out analog and power judgement calls: converter sizing, loop compensation, thermal,
+  creepage and clearance figures, inrush design, RF layout. If a thread's open points are all of
+  that kind, skip it.
+- When unsure whether the user can defend a point, drop it. A shorter reply that is right beats a
+  fuller one with a guess in it.
 
 ## Rules for mentioning the user's projects
 
